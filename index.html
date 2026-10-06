@@ -5,7 +5,7 @@
 <base target="_top">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>素材を送る</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src https://script.google.com https://script.googleusercontent.com https://www.googleapis.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src blob:; connect-src https://script.google.com https://script.googleusercontent.com https://www.googleapis.com; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <script>window.KVT_ENDPOINT = "https://script.google.com/macros/s/AKfycbwsHUU7PZhpWAsBdQtzd_VyDYtGk-4ZD626IKXPg3DGmhBGF2L2lHUg6ySEB3k7_VMk/exec";</script>
 <!-- 受け口のページ(丁の段 1、2026-10-05、#282)。これは元の版で、scripts/receive.py build-gas が部品(stage0_meta.js・send.js)を
@@ -15,7 +15,9 @@
          (docs/questions/2026-10-06-受け口が複数アカウントで開けない.md)。
      (2) Apps Script に貼る版 apps_script/receiver/dist/page.html(doGet が返す。google.script.run で呼ぶ。控え)。
      画面に書くのは textContent だけ(上げた人が付けた名前で台本が動かないように)。
-     JavaScript が無いと動かない(送ることそのものがブラウザの仕事なので)。 -->
+     JavaScript が無いと動かない(送ることそのものがブラウザの仕事なので)。
+     画面は 3 つ(2026-10-07、ボール 24。docs/questions/2026-10-07-受け口のページの画面の分け方.md): 選ぶ(v-pick)・今回の分(v-now)・
+     前に送った分(v-past)。1 つのページの中で切り替え、外に置く版では URL の # に v=now・v=past を足して「戻る」で戻れるようにする。 -->
 <style>
 :root { --bg:#f6f7f9; --surface:#fff; --surface-alt:#f0f2f5; --border:#d9dee5; --text:#1c2430; --muted:#64748b;
   --accent:#2563eb; --accent-contrast:#fff; --danger:#b91c1c; --add-bg:#e6f6ea; --del-bg:#fdecec; --mod-bg:#fff6e0;
@@ -29,32 +31,61 @@ main { max-width:640px; margin:0 auto; padding:16px; }
 h1 { font-size:20px; margin:0 0 4px; }
 .sub { color:var(--muted); font-size:14px; margin:0 0 12px; }
 section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin:0 0 14px; }
-h2 { font-size:16px; margin:0 0 8px; }
+h2 { font-size:17px; margin:0 0 8px; }
+h3 { font-size:15px; margin:14px 0 4px; color:var(--muted); }
+h3:first-child { margin-top:0; }
 input[type=text] { width:100%; font-size:16px; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); }
 .pick { display:block; text-align:center; background:var(--accent); color:var(--accent-contrast); border-radius:var(--radius);
   padding:16px; font-size:18px; font-weight:600; margin:8px 0; cursor:pointer; }
 .pick input, .link input { display:none; }
 .link { color:var(--accent); text-decoration:underline; cursor:pointer; }
-button.sm { font:inherit; font-size:14px; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface-alt); color:var(--text); }
+button { font:inherit; color:var(--text); }
+button.sm { font-size:15px; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface-alt); }
+button.main { font-size:16px; padding:11px 14px; border-radius:8px; border:0; background:var(--accent); color:var(--accent-contrast); font-weight:600; }
 .note { color:var(--muted); font-size:14px; }
 .warn { background:var(--mod-bg); border-radius:8px; padding:10px; font-weight:600; }
 .bad { background:var(--del-bg); border-radius:8px; padding:10px; font-weight:600; }
 .good { background:var(--add-bg); border-radius:8px; padding:10px; font-weight:600; }
-.file { border-top:1px solid var(--border); padding:10px 0; }
+.row { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 0; }
+/* 画面 A の「前に送った分」へのボタン(行全体を押せる) */
+button.go-past { display:flex; width:100%; align-items:center; justify-content:space-between; text-align:left; padding:12px 14px;
+  border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
+button.go-past b { font-size:16px; }
+button.go-past .chev { color:var(--muted); font-size:20px; }
+/* 送っている間、ほかの画面の一番上に出す帯 */
+#busy { position:sticky; top:0; z-index:5; display:block; width:100%; text-align:left; border:0; border-bottom:1px solid var(--border);
+  background:var(--mod-bg); padding:10px 16px; font-weight:600; }
+/* 今回の分: 1 本 = 1 つの箱。絵・何か・撮影時刻・名前・状態を箱の中に */
+.file { display:flex; gap:12px; border-top:1px solid var(--border); padding:12px 0; }
 .file:first-child { border-top:0; }
-.file .name { font-weight:600; word-break:break-all; }
-.file.held .msg { background:var(--del-bg); border-radius:8px; padding:10px; font-weight:600; color:var(--text); }
-.choice button { margin:4px 6px 0 0; }
-.bar { height:10px; background:var(--surface-alt); border-radius:5px; overflow:hidden; margin:6px 0; }
+.thumb { flex:0 0 64px; height:64px; border-radius:8px; overflow:hidden; background:var(--surface-alt); display:flex; align-items:center;
+  justify-content:center; color:var(--muted); font-size:13px; }
+.thumb img, .thumb video { width:100%; height:100%; object-fit:cover; display:block; }
+.fbody { flex:1; min-width:0; }
+.what { font-weight:600; }
+.file .name { color:var(--muted); font-size:13px; word-break:break-all; }
+.file .msg { font-size:14px; margin-top:4px; }
+.file.held .msg { background:var(--del-bg); border-radius:8px; padding:10px; font-weight:600; }
+.file.ok .msg { color:var(--text); }
+.file.ng .msg { background:var(--del-bg); border-radius:8px; padding:8px 10px; font-weight:600; }
+.choice { display:flex; flex-direction:column; gap:6px; margin:8px 0 0; }
+.choice button { text-align:left; }
+.bar { height:8px; background:var(--surface-alt); border-radius:4px; overflow:hidden; margin:6px 0 0; }
 .bar > i { display:block; height:100%; width:0; background:var(--accent); }
-.st { border-radius:6px; padding:1px 6px; font-size:14px; }
+.st { border-radius:6px; padding:1px 6px; font-size:14px; white-space:nowrap; }
 .st.received, .st.imported { background:var(--add-bg); } .st.quarantined, .st.failed, .st.missing { background:var(--del-bg); } .st.sending { background:var(--mod-bg); }
+/* 前に送った分: 送った日で見出し、1 行 = 1 回送ったもの */
 ul.rc { list-style:none; padding:0; margin:0; }
-ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14px; word-break:break-all; }
+ul.rc li { border-top:1px solid var(--surface-alt); padding:8px 0; font-size:14px; }
+ul.rc li .t { font-weight:600; font-variant-numeric:tabular-nums; margin-right:6px; }
+ul.rc li .nm { color:var(--muted); word-break:break-all; }
+ul.rc li .dup { color:var(--muted); }
+.back { border:0; background:none; color:var(--accent); padding:0; margin:0 0 8px; font-size:15px; }
 [hidden] { display:none !important; }
 </style>
 </head>
 <body>
+<button type="button" id="busy" hidden></button>
 <main>
 <h1>素材を送る</h1>
 <p class="sub" id="who">読み込んでいます…</p>
@@ -62,35 +93,50 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
 <p class="warn" id="inline" hidden>LINE の中で開いています。うまく送れないときは、右上のメニューから「ブラウザで開く」（Safari・Chrome）で開き直してください。</p>
 
 <div id="app" hidden>
+<!-- 画面 A: 選ぶ -->
+<div id="v-pick">
 <section>
-  <h2>1. 写真・動画を選ぶ</h2>
   <label class="pick">写真・動画を選ぶ<input type="file" id="pick-a" multiple accept="image/*,video/*"></label>
   <p class="warn" id="ios-howto">iPhone の方へ: 選ぶ画面の「オプション」で「現在」を選んでください（元の画質のまま届きます）。</p>
   <p class="note">いくつでもまとめて選べます。動画は撮ったときのまま送ります（編集・切り出しをしたものではなく、元の動画を選んでください）。</p>
   <p class="note"><label class="link">写真アプリに無いもの（「ファイル」アプリ・iCloud Drive などに保存したもの）はこちらから選ぶ<input type="file" id="pick-b" multiple></label></p>
-  <p class="warn" id="keep" hidden>送り終わるまで: 画面を消さない・このページを閉じない・充電器と Wi-Fi につなぐ</p>
 </section>
-
-<section>
-  <h2>2. 送っているもの</h2>
-  <div id="files"><p class="note">まだありません。</p></div>
-  <p class="good" id="done" hidden></p>
-</section>
-
-<section>
-  <h2>3. このスマホから送った分</h2>
-  <p class="note">「届きました」と出たものは、スマホから消してかまいません。そのあと運用者の PC が取りに行くと「取り込み済み」に変わります（すぐではなく、ふつうは数日のうち）。</p>
-  <p class="note">このページを開いたときに確かめます。開いたままなら下のボタンで確かめ直せます。</p>
-  <ul class="rc" id="rc"></ul>
-  <p><button class="sm" id="refresh" type="button">取り込まれたか確かめる</button></p>
-</section>
-
+<p><button type="button" class="go-past" id="to-past"><span><b>前に送った分</b><br><span class="note" id="past-sum">まだありません。</span></span><span class="chev">›</span></button></p>
 <section>
   <h2>端末の呼び名（任意）</h2>
   <input type="text" id="device" placeholder="例: 山田の iPhone" autocomplete="off" maxlength="60">
   <p class="note">同じ人が 2 台で撮ったときに分けるためです。次から覚えます。</p>
 </section>
 <p class="note" id="gasnote">ページの上の灰色の帯は、Google が「Google 以外の人が作ったページです」と知らせる決まりの表示です。</p>
+</div>
+
+<!-- 画面 B: 今回の分(選んだ直後から。送っている → 送り終えた、に同じ画面のまま変わる) -->
+<div id="v-now" hidden>
+<section>
+  <h2 id="now-title">今回の分</h2>
+  <p class="note" id="now-sub"></p>
+  <p class="warn" id="keep" hidden>送り終わるまで: 画面を消さない・このページを閉じない・充電器と Wi-Fi につなぐ</p>
+  <p class="bad" id="ask" hidden></p>
+  <div id="files"></div>
+  <p class="good" id="done" hidden></p>
+  <div class="row" id="next" hidden>
+    <button type="button" class="main" id="again">続けて選ぶ</button>
+    <button type="button" class="sm" id="now-past">前に送った分を見る</button>
+  </div>
+</section>
+</div>
+
+<!-- 画面 C: 前に送った分 -->
+<div id="v-past" hidden>
+<button type="button" class="back" id="past-back">‹ 戻る</button>
+<section>
+  <h2>前に送った分</h2>
+  <p class="note" id="checked"></p>
+  <div id="rc"></div>
+  <p class="row"><button class="sm" id="refresh" type="button">確かめ直す</button></p>
+</section>
+<p class="note">「届きました」と出たものは、スマホから消してかまいません。そのあと運用者の PC が取りに行くと「取り込み済み」に変わります（すぐではなく、ふつうは数日のうち）。</p>
+</div>
 </div>
 </main>
 
@@ -363,14 +409,18 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
   function receipts(store) {
     try { return JSON.parse(store.get("receipts") || "[]"); } catch (e) { return []; }
   }
+  // 同じ受付番号の控えは足し合わせる(送り始めた時刻 at・撮影時刻などの添え書きは、状態が変わっても残す。2026-10-07 ボール 24)
   function saveReceipt(store, v) {
-    const list = receipts(store).filter((x) => x.r !== v.r);
-    list.unshift(Object.assign({ at: new Date().toISOString() }, v));
+    const all = receipts(store);
+    const old = all.find((x) => x.r === v.r) || {};
+    const list = all.filter((x) => x.r !== v.r);
+    list.unshift(Object.assign({ at: new Date().toISOString() }, old, v));
     store.set("receipts", JSON.stringify(list.slice(0, 300)));
   }
 
-  // 1 本を送る。o = { file, meta, k, device, origin, call(fn, arg) → Promise, fetchFn, store, update(st), sleep(ms), edited }
+  // 1 本を送る。o = { file, meta, k, device, origin, call(fn, arg) → Promise, fetchFn, store, update(st), sleep(ms), edited, info }
   // edited: 元でないと知らせた上で本人が「このまま送る」を選んだもの(控えに印を残し、画面で「加工した版」と出す)
+  // info: 控えに添える画面用の書き添え({ kind: "動画"|"写真", dur: 秒, taken: 撮影時刻 }。前に送った分の画面で出す)
   // 返すのは受け口の finish の答え({ r, state, ... })
   async function sendFile(o) {
     const f = o.file, st = { size: f.size, sent: 0, msg: "準備しています" };
@@ -398,7 +448,7 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
       });
       saved = { uri: got.uri, r: got.r };
       o.store.set(key, JSON.stringify(saved));
-      saveReceipt(o.store, Object.assign({ r: got.r, name: f.name, size: f.size, state: "sending" }, o.edited ? { edited: true } : {}));
+      saveReceipt(o.store, Object.assign({}, o.info || {}, { r: got.r, name: f.name, size: f.size, state: "sending" }, o.edited ? { edited: true } : {}));
     }
 
     let retries = 0;
@@ -468,9 +518,13 @@ const store = {  // 読めない端末(プライベートモードなど)でも�
 const mb = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB";
 const LABEL = { sending: "途中", received: "届きました（消してよい）", imported: "取り込み済み",
                 quarantined: "確かめで止まりました（運用者が見ます）", missing: "見つかりません（消さずに運用者へ）", failed: "失敗" };
+const SHORT = { sending: "途中", received: "届きました", imported: "取り込み済み", quarantined: "確かめで止まりました",
+                missing: "見つかりません", failed: "失敗" };
 // 元でないと知らせた上で「このまま送る」を選んだもの(§10 (甲'))は「加工した版」と出す。スマホから消してよいかは元と同じ
 const label = (x) => (x.edited && x.state === "received" ? "届きました（加工した版）" : LABEL[x.state] || x.state);
 const ENDPOINT = window.KVT_ENDPOINT || "";  // 外に置いた版だけ、受け口の URL が入る
+const POLL_MS = window.KVT_POLL_MS || 30000;           // 前に送った分の画面を開いている間、状態を聞き直す間隔
+const POLL_FOR_MS = window.KVT_POLL_FOR_MS || 300000;  // 聞き続けるのはここまで(受け口はそのたびにドライブへ 1 本ずつ問い合わせるので)
 const call = ENDPOINT
   ? async (fn, arg) => {  // Cookie を付けない(Google のログインを見せない)。text/plain にして下見の要求(preflight)を出させない
       const res = await fetch(ENDPOINT, { method: "POST", credentials: "omit", redirect: "follow",
@@ -483,20 +537,43 @@ const call = ENDPOINT
   : (fn, arg) => new Promise((ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng)[fn](arg));
 const onHash = (cb) => ENDPOINT ? cb(location.hash.replace(/^#/, "")) : google.script.url.getLocation((loc) => cb(loc.hash || ""));
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+const two = (n) => String(n).padStart(2, "0");
+const WD = "日月火水木金土";
+const hm = (d) => two(d.getHours()) + ":" + two(d.getMinutes());
+const dayHead = (d) => `${d.getMonth() + 1}月${d.getDate()}日（${WD[d.getDay()]}）`;
+// 撮影時刻: 時差の分かるもの(動画の印・mvhd)はこのスマホの時刻に直し、分からないもの(写真の Exif)は書いてあるまま
+function shotAt(s) {
+  if (!s) return "";
+  const t = ReceiveSend.parseStamp(s);
+  if (isFinite(t)) { const d = new Date(t); return `${d.getMonth() + 1}月${d.getDate()}日 ${hm(d)}`; }
+  const m = /^(\d{4})[-:](\d\d)[-:](\d\d)[T ](\d\d):(\d\d)/.exec(String(s));
+  return m ? `${Number(m[2])}月${Number(m[3])}日 ${m[4]}:${m[5]}` : "";
+}
+const durText = (s) => !(s > 0) ? "" : s < 60 ? Math.max(1, Math.round(s)) + " 秒" : Math.floor(s / 60) + " 分 " + Math.round(s % 60) + " 秒";
+const whatText = (kind, dur, size) => [kind + (dur ? " " + durText(dur) : ""), size ? mb(size) : ""].filter(Boolean).join("・");
 let K = null;
 
-onHash((hash) => {
-  const m = /(?:^|&)k=([A-Za-z0-9._-]+)/.exec(hash);
-  const inv = m && ReceiveSend.decodeInvite(m[1]);
-  if (!inv) { $("who").textContent = ""; $("nokey").hidden = false; return; }
-  K = m[1];
-  const exp = new Date(inv.exp * 1000);
-  $("who").textContent = `${inv.who} さん用 ／ ${inv.case} ／ ${exp.getMonth() + 1}月${exp.getDate()}日まで`;
-  if (Date.now() > inv.exp * 1000) { $("nokey").hidden = false; $("nokey").textContent = "このリンクの期限が過ぎました。運用者に新しいリンクをもらってください。"; }
-  $("app").hidden = false;
-  drawReceipts();
-  refresh();
-});
+// ---- 画面の切り替え ----------------------------------------------------------
+let view = "pick";
+function show(v, push) {
+  view = v;
+  $("v-pick").hidden = v !== "pick"; $("v-now").hidden = v !== "now"; $("v-past").hidden = v !== "past";
+  if (push && ENDPOINT) {  // 外に置く版だけ URL に残す(「戻る」で前の画面へ)。Apps Script の囲いの中では使わない
+    const base = location.hash.replace(/&v=[a-z]+/, "");
+    try { history.pushState({ v }, "", v === "pick" ? base || "#" : base + "&v=" + v); } catch (e) {}
+  }
+  if (v === "pick") { drawSummary(); if (!active) clearDone(); }
+  if (v === "past") { drawReceipts(); startPoll(); } else stopPoll();
+  drawBusy();
+  window.scrollTo(0, 0);
+}
+window.addEventListener("popstate", () => { const m = /&v=([a-z]+)/.exec(location.hash); show(m && (m[1] === "past" || (m[1] === "now" && batch)) ? m[1] : "pick", false); });
+$("to-past").addEventListener("click", () => show("past", true));
+$("now-past").addEventListener("click", () => show("past", true));
+$("past-back").addEventListener("click", () => (ENDPOINT && history.state && history.state.v ? history.back() : show("pick", false)));
+$("again").addEventListener("click", () => { show("pick", true); });
+$("busy").addEventListener("click", () => show("now", true));
+
 $("inline").hidden = !/\bLine\//i.test(navigator.userAgent);
 $("gasnote").hidden = !!ENDPOINT;
 $("device").value = store.get("device") || "";
@@ -514,32 +591,154 @@ async function keepAwake(on) {
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
-  if (active > 0) { wake = null; keepAwake(true); } else refresh();  // 戻ってきたら確かめ直す(送っている最中は送るのを優先)
+  if (active > 0) { wake = null; keepAwake(true); }
+  else if (view === "past") startPoll();  // ほかのアプリから戻ってきた: 確かめ直す(送っている最中は送るのを優先)
+  else refresh();
 });
 
-function drawReceipts() {
-  const ul = $("rc");
-  ul.textContent = "";
+// ---- 前に送った分 ------------------------------------------------------------
+function drawSummary() {
   const list = ReceiveSend.receipts(store);
-  if (!list.length) { ul.appendChild(el("li", "note", "まだありません。")); return; }
+  if (!list.length) { $("past-sum").textContent = "まだありません。"; return; }
+  const n = {};
+  for (const x of list) { const s = x.edited && x.state === "received" ? "received" : x.state; n[s] = (n[s] || 0) + 1; }
+  $("past-sum").textContent = `${list.length} 本 ／ ` + Object.keys(SHORT).filter((s) => n[s]).map((s) => `${SHORT[s]} ${n[s]}`).join(" ／ ");
+}
+function drawReceipts() {
+  const box = $("rc");
+  box.textContent = "";
+  const list = ReceiveSend.receipts(store).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+  if (!list.length) { box.appendChild(el("p", "note", "まだありません。")); return; }
+  // 同じもの(名前・大きさ・撮影時刻が同じ)を何度送ったか。古い順に 1 回目・2 回目と数える
+  const key = (x) => [x.name, x.size, x.taken || ""].join("|");
+  const all = {}, nth = new Map();
+  for (const x of list.slice().reverse()) { const k = key(x); all[k] = (all[k] || 0) + 1; nth.set(x, all[k]); }
+  let day = "", ul = null;
   for (const x of list) {
+    const d = x.at ? new Date(x.at) : null;
+    const h = d ? dayHead(d) : "送った日の分からないもの";
+    if (h !== day) { day = h; box.appendChild(el("h3", "", h)); ul = box.appendChild(el("ul", "rc")); }
     const li = el("li");
-    li.appendChild(el("span", "st " + x.state, label(x)));
-    li.appendChild(document.createTextNode(" " + x.name + "（" + mb(x.size) + "）"));
+    const l1 = el("div");
+    l1.appendChild(el("span", "t", d ? hm(d) : "--:--"));
+    const what = [x.kind ? whatText(x.kind, x.dur, 0) : "", x.taken ? "撮影 " + shotAt(x.taken) : ""].filter(Boolean).join("　");
+    if (what) l1.appendChild(el("span", "", what));
+    const l2 = el("div");
+    l2.appendChild(el("span", "st " + x.state, label(x)));
+    l2.appendChild(el("span", "nm", " " + x.name + "（" + mb(x.size) + "）"));
+    li.append(l1, l2);
+    const k = key(x);
+    if (nth.get(x) > 1) li.appendChild(el("div", "dup", `同じものを ${all[k]} 回送っています（これは ${nth.get(x)} 回目）`));
     ul.appendChild(li);
   }
 }
+// 状態の口の答えは、聞いた後に finish が台帳を書くと古くなる。「途中」へは戻さない(届いた控えが「途中」に戻って、
+// 選び直すと丸ごと送り直すことになるので。レビュー docs/reviews/2026-10-07-受け口のページの3画面.md 指摘 3)
+let checking = null, again = false;
 async function refresh() {
-  const list = ReceiveSend.receipts(store);
-  const ask = list.filter((x) => x.state !== "imported").map((x) => x.r).slice(0, 100);
-  if (!ask.length || !K) return;
-  try {
-    const got = await call("status", { k: K, rs: ask });
-    for (const v of got) ReceiveSend.saveReceipt(store, Object.assign({}, list.find((x) => x.r === v.r) || {}, { state: v.state }));
-  } catch (e) { /* 見られなくても、手元の控えはそのまま出す */ }
-  drawReceipts();
+  if (checking) { again = true; return checking; }  // 進んでいる問い合わせの後に、もう 1 回聞く(その間に変わった控えのため)
+  checking = (async () => {
+    const list = ReceiveSend.receipts(store);
+    const ask = list.filter((x) => x.state !== "imported").map((x) => x.r).slice(0, 100);
+    let msg = "";
+    if (ask.length && K) {
+      try {
+        const got = await call("status", { k: K, rs: ask });
+        const now = ReceiveSend.receipts(store);  // 聞いている間に送り終えた分は、今の控えを元にする
+        for (const v of got) {
+          const cur = now.find((x) => x.r === v.r) || list.find((x) => x.r === v.r) || {};
+          if (v.state === "sending" && cur.state && cur.state !== "sending") continue;
+          ReceiveSend.saveReceipt(store, Object.assign({}, cur, { state: v.state }));
+        }
+        msg = "確かめた時刻 " + hm(new Date());
+      } catch (e) { msg = "確かめられませんでした（" + hm(new Date()) + "）。このスマホの控えを出しています"; }  // 見られなくても、手元の控えはそのまま出す
+    } else msg = "確かめた時刻 " + hm(new Date());
+    lastCheck = msg;
+    drawSummary();
+    if (view === "past") drawReceipts();
+    drawChecked();
+  })();
+  try { await checking; } finally { checking = null; }
+  if (again) { again = false; return refresh(); }
 }
-$("refresh").addEventListener("click", refresh);
+// 前に送った分の画面を開いている間だけ、間隔をおいて聞き直す(取り込み済みでないものだけ)。決めた時間で止め、ボタンに任せる
+let poll = null, pollUntil = 0, lastCheck = "";
+function startPoll() {
+  stopPoll();
+  pollUntil = Date.now() + POLL_FOR_MS;
+  refresh();
+  poll = setInterval(() => {
+    if (Date.now() >= pollUntil) { stopPoll(); drawChecked(); return; }
+    if (document.visibilityState === "visible") refresh();
+  }, POLL_MS);
+  drawChecked();
+}
+function stopPoll() { if (poll) clearInterval(poll); poll = null; }
+function drawChecked() {
+  const every = POLL_MS >= 1000 ? Math.round(POLL_MS / 1000) + " 秒" : POLL_MS + " ミリ秒";
+  $("checked").textContent = (lastCheck || "確かめています…") +
+    (poll ? `（この画面を開いている間は ${every}ごとに確かめます）` : "（自動で確かめるのは止めました。下のボタンで確かめ直せます）");
+}
+$("refresh").addEventListener("click", () => (view === "past" ? startPoll() : refresh()));
+
+// ---- 今回の分 ----------------------------------------------------------------
+// batch: 今回選んだ分。送っている間に選び足した分は後ろに並ぶ。送り終えて選ぶ画面に戻ると片付ける
+let batch = null;
+function clearDone() {
+  if (!batch) return;
+  for (const c of batch.cards) if (c.url) URL.revokeObjectURL(c.url);
+  batch = null;
+  $("files").textContent = ""; $("done").hidden = true; $("next").hidden = true; $("ask").hidden = true;
+  drawBusy();
+}
+function drawNow() {
+  if (!batch) return;
+  const n = batch.cards.length;
+  const left = batch.cards.filter((c) => !c.over).length;
+  $("now-title").textContent = batch.asking ? "送る前に選んでください" : active ? "送っています" : "送り終えました（" + hm(new Date(batch.end || Date.now())) + "）";
+  $("now-sub").textContent = `${dayHead(batch.start)} ${hm(batch.start)} に選んだ ${n} 本` + (active && left ? `（残り ${left} 本）` : "");
+  drawBusy();
+}
+function drawBusy() {
+  const b = $("busy");
+  if (!batch || view === "now" || (!active && view === "pick")) { b.hidden = true; return; }  // 送り終えて選ぶ画面に戻ったら片付いている
+  const n = batch.cards.length, over = batch.cards.filter((c) => c.over).length;
+  b.textContent = active ? `送っています ${over} / ${n} 本 ›（押すと今回の分）` : `送り終えました ${n} 本 ›（押すと今回の分）`;
+  b.hidden = false;
+}
+
+function card(f) {
+  const box = el("div", "file");
+  const th = el("div", "thumb");
+  const body = el("div", "fbody");
+  const video = /^video\//.test(f.type) || /\.(mov|mp4|m4v|3gp)$/i.test(f.name);
+  const c = { f, box, video, kind: video ? "動画" : "写真", dur: 0, over: false };
+  // 小さな絵: 選んだファイルそのものをこのスマホの中で縮めて出すだけ(どこにも送らない)
+  try {
+    c.url = URL.createObjectURL(f);
+    if (video && batch.videos++ >= 12) th.textContent = "動画";
+    else if (video) {
+      const v = el("video"); v.muted = true; v.playsInline = true; v.preload = "metadata"; v.setAttribute("playsinline", "");
+      c.durReady = new Promise((ok) => { v.addEventListener("loadedmetadata", () => { c.dur = v.duration; ok(); }); v.addEventListener("error", ok); setTimeout(ok, 3000); });
+      v.addEventListener("error", () => { th.textContent = "動画"; });
+      v.src = c.url + "#t=0.1";
+      th.appendChild(v);
+    } else {
+      const im = el("img"); im.alt = ""; im.decoding = "async"; im.loading = "lazy";
+      im.addEventListener("error", () => { im.remove(); th.textContent = "写真"; });
+      im.src = c.url;
+      th.appendChild(im);
+    }
+  } catch (e) { th.textContent = c.kind; }
+  c.what = el("div", "what", whatText(c.kind, 0, f.size));
+  c.when = el("div", "note", "撮影時刻を読んでいます");
+  c.name = el("div", "name", f.name);
+  const bar = el("div", "bar"); c.fill = el("i"); bar.appendChild(c.fill); bar.hidden = true; c.bar = bar;
+  c.msg = el("div", "msg", "待っています");
+  body.append(c.what, c.when, c.name, bar, c.msg);
+  box.append(th, body);
+  return c;
+}
 
 // 元の動画ではないものは送る前に止めて、本人に選んでもらう(選び画面が作り直したものか、本人が編集したものかは機械で分けられない)
 function askChoice(c) {
@@ -550,72 +749,107 @@ function askChoice(c) {
   const go = el("button", "sm go", "このまま送る（切り取った動画など）");
   redo.type = go.type = "button";
   row.append(redo, go);
-  c.box.appendChild(row);
+  c.msg.after(row);
   return new Promise((ok) => {
     redo.addEventListener("click", () => { row.remove(); ok("redo"); });
     go.addEventListener("click", () => { row.remove(); c.box.classList.remove("held"); ok("send"); });
   });
 }
 
-function card(f) {
-  const box = el("div", "file");
-  box.appendChild(el("div", "name", f.name));
-  const info = el("div", "note", mb(f.size) + " ／ 印を読んでいます");
-  const bar = el("div", "bar"); const fill = el("i"); bar.appendChild(fill);
-  const msg = el("div", "note msg");
-  box.append(info, bar, msg);
-  return { box, info, fill, msg };
-}
-
 async function onPick(ev) {
   const files = [...ev.target.files];
   ev.target.value = "";
   if (!files.length || !K) return;
-  if ($("files").querySelector("p.note")) $("files").textContent = "";
-  $("done").hidden = true;
-  let n = 0, bytes = 0, bad = 0, held = 0, ed = 0;
+  if (!active) {  // 新しい回: 前の回の表示を片付ける
+    clearDone();
+    batch = { start: new Date(), cards: [], asking: 0, videos: 0, n: 0, bytes: 0, bad: 0, held: 0, ed: 0, end: 0 };
+  }
+  const mine = files.map((f) => card(f));
+  for (const c of mine) { batch.cards.push(c); $("files").appendChild(c.box); }
+  $("done").hidden = true; $("next").hidden = true;
   active++; keepAwake(true);
+  show("now", view !== "now");
+  drawNow();
   try {
-    for (const f of files) {
-      const c = card(f);
-      $("files").prepend(c.box);
+    // 先に全部の印を読み、元でない動画があれば送り始める前にまとめて聞く(送っている途中で止まって待たないように)
+    for (const c of mine) {
       let meta = {};
-      try { meta = await Stage0Meta.read(f); } catch (e) { meta = {}; }
-      const taken = meta.taken || meta.mvhd;
-      c.info.textContent = mb(f.size) + " ／ 撮影時刻 " + (taken || "読めません") + (meta.model ? " ／ " + [meta.make, meta.model].filter(Boolean).join(" ") : "");
-      if (!taken) c.msg.textContent = "撮影時刻が読めません。写真アプリで編集・書き出しをしたものなら、元の写真・動画を選び直してください（このまま送ることもできます）。";
-      const edited = ReceiveSend.remadeVideo(meta, f);  // 元の動画ではない(選び画面の「自動」が作り直した・編集した)。§7 (a-1)・§10 (甲')
-      if (edited && (await askChoice(c)) === "redo") {
-        held++;
+      try { meta = await Stage0Meta.read(c.f); } catch (e) { meta = {}; }
+      if (c.durReady) await c.durReady;
+      c.meta = meta;
+      c.taken = meta.taken || meta.mvhd || "";
+      c.what.textContent = whatText(c.kind, c.dur, c.f.size);
+      c.when.textContent = c.taken ? "撮影 " + shotAt(c.taken) + (meta.model ? "　" + [meta.make, meta.model].filter(Boolean).join(" ") : "") : "撮影時刻が読めません";
+      if (!c.taken) c.msg.textContent = "撮影時刻が読めません。写真アプリで編集・書き出しをしたものなら、元の写真・動画を選び直してください（このまま送ることもできます）。";
+      c.edited = ReceiveSend.remadeVideo(meta, c.f);  // 元の動画ではない(選び画面の「自動」が作り直した・編集した)。§7 (a-1)・§10 (甲')
+    }
+    const asks = mine.filter((c) => c.edited);
+    if (asks.length) {
+      $("ask").hidden = false; batch.asking++; drawNow();
+      $("ask").textContent = `${asks.length} 本は、送る前に選んでください（赤い箱のボタン）。選び終えると送り始めます。`;
+      const ans = await Promise.all(asks.map((c) => askChoice(c)));
+      asks.forEach((c, i) => { c.choice = ans[i]; });
+      batch.asking--; $("ask").hidden = !batch.asking; drawNow();
+    }
+    for (const c of mine) {
+      if (c.choice === "redo") {
+        batch.held++; c.over = true; c.box.classList.add("held");
         c.msg.textContent = "送っていません: もう一度「写真・動画を選ぶ」を押し、選ぶ画面の「オプション」で「現在」を選んでから選び直してください。写真アプリで編集した動画を丸ごと送ってよければ、編集を元に戻してから選んでください。";
-        continue;
+        drawNow();
       }
+    }
+    for (const c of mine) {
+      if (c.choice === "redo") continue;
+      c.bar.hidden = false;
       try {
         const v = await ReceiveSend.sendFile({
-          file: f, meta, k: K, device: $("device").value, origin: location.origin, call, fetchFn: fetch.bind(window), store, edited,
+          file: c.f, meta: c.meta, k: K, device: $("device").value, origin: location.origin, call, fetchFn: fetch.bind(window), store,
+          edited: c.edited, info: { kind: c.kind, dur: c.dur || undefined, taken: c.taken || undefined },
           update: (st) => { c.fill.style.width = Math.floor((st.sent / st.size) * 100) + "%"; c.msg.textContent = st.msg + "（" + mb(st.sent) + " / " + mb(st.size) + "）"; },
         });
-        c.msg.textContent = label(Object.assign({ edited }, v));
-        if (v.state === "received") { n++; bytes += f.size; if (edited) ed++; } else bad++;
+        c.msg.textContent = label(Object.assign({ edited: c.edited }, v));
+        if (v.state === "received") { batch.n++; batch.bytes += c.f.size; if (c.edited) batch.ed++; c.box.classList.add("ok"); c.bar.hidden = true; }
+        else { batch.bad++; c.box.classList.add("ng"); }
       } catch (e) {
-        bad++;
+        batch.bad++; c.box.classList.add("ng");
         c.msg.textContent = "止まりました: " + (e && e.message || e) + "。同じファイルを選び直すと続きから送ります。";
       }
-      drawReceipts();
+      c.over = true;
+      drawNow();
     }
   } finally {
     active--;
     if (active === 0) keepAwake(false);
   }
+  if (active) return;  // 選び足した分がまだ送っている: まとめはそれが終わってから
+  batch.end = Date.now();
+  const { n, bytes, bad, held, ed } = batch;
   $("done").hidden = false;
   $("done").textContent = (n ? `${n} 本・${mb(bytes)} 届きました${ed ? `（うち ${ed} 本は加工した版）` : ""}。` : "") +
     (bad ? `${bad} 本は届いていません（上の表示を見てください。届いていないものは消さないでください）。` : "") +
     (held ? `${held} 本は送っていません（上の表示を見てください。送っていないものは消さないでください）。` : "") +
     (n ? "届いたものは、スマホから消してかまいません。" : "");  // 何も届かなかったときは「届きました」の句を出さない
+  $("done").className = bad || held ? "warn" : "good";
+  $("next").hidden = false;
+  drawNow();
   refresh();  // 確かめの答えが届かず「止まりました」になったものも、受け口の台帳で状態を取り直す
 }
 $("pick-a").addEventListener("change", onPick);
 $("pick-b").addEventListener("change", onPick);
+
+// 開いたとき(画面の部品と変数がすべて揃ってから)
+onHash((hash) => {
+  const m = /(?:^|&)k=([A-Za-z0-9._-]+)/.exec(hash);
+  const inv = m && ReceiveSend.decodeInvite(m[1]);
+  if (!inv) { $("who").textContent = ""; $("nokey").hidden = false; return; }
+  K = m[1];
+  const exp = new Date(inv.exp * 1000);
+  $("who").textContent = `${inv.who} さん用 ／ ${inv.case} ／ ${exp.getMonth() + 1}月${exp.getDate()}日まで`;
+  if (Date.now() > inv.exp * 1000) { $("nokey").hidden = false; $("nokey").textContent = "このリンクの期限が過ぎました。運用者に新しいリンクをもらってください。"; }
+  $("app").hidden = false;
+  show(/(?:^|&)v=past/.test(hash) ? "past" : "pick", false);  // 開き直したときは選ぶ画面から(今回の分は開き直すと残らない)
+  refresh();
+});
 </script>
 </body>
 </html>
