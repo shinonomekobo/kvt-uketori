@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<base target="_top">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>素材を送る</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src https://script.google.com https://script.googleusercontent.com https://www.googleapis.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<script>window.KVT_ENDPOINT = "https://script.google.com/macros/s/AKfycbwsHUU7PZhpWAsBdQtzd_VyDYtGk-4ZD626IKXPg3DGmhBGF2L2lHUg6ySEB3k7_VMk/exec";</script>
+<!-- 受け口のページ(丁の段 1、2026-10-05、#282)。これは元の版で、scripts/receive.py build-gas が部品(stage0_meta.js・send.js)を
+     埋め込んで 2 通りに組む:
+     (1) 外に置く版(GitHub Pages、2026-10-06 から主)。build-gas --site <置き場> が SITE_HEAD に受け口の URL と CSP を入れる。
+         受け口(Code.gs の doPost)を Cookie なしの fetch で呼ぶので、Google に複数のアカウントでログインしたブラウザでも開ける
+         (docs/questions/2026-10-06-受け口が複数アカウントで開けない.md)。
+     (2) Apps Script に貼る版 apps_script/receiver/dist/page.html(doGet が返す。google.script.run で呼ぶ。控え)。
+     画面に書くのは textContent だけ(上げた人が付けた名前で台本が動かないように)。
+     JavaScript が無いと動かない(送ることそのものがブラウザの仕事なので)。 -->
+<style>
+:root { --bg:#f6f7f9; --surface:#fff; --surface-alt:#f0f2f5; --border:#d9dee5; --text:#1c2430; --muted:#64748b;
+  --accent:#2563eb; --accent-contrast:#fff; --danger:#b91c1c; --add-bg:#e6f6ea; --del-bg:#fdecec; --mod-bg:#fff6e0;
+  --radius:10px; }
+@media (prefers-color-scheme: dark) { :root { --bg:#11151b; --surface:#1a2029; --surface-alt:#232b36; --border:#334155;
+  --text:#e5e7eb; --muted:#94a3b8; --accent:#60a5fa; --accent-contrast:#0b1220; --danger:#f87171; --add-bg:#163322;
+  --del-bg:#3a1a1a; --mod-bg:#3a2f12; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; }
+main { max-width:640px; margin:0 auto; padding:16px; }
+h1 { font-size:20px; margin:0 0 4px; }
+.sub { color:var(--muted); font-size:14px; margin:0 0 12px; }
+section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin:0 0 14px; }
+h2 { font-size:16px; margin:0 0 8px; }
+input[type=text] { width:100%; font-size:16px; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); }
+.pick { display:block; text-align:center; background:var(--accent); color:var(--accent-contrast); border-radius:var(--radius);
+  padding:16px; font-size:18px; font-weight:600; margin:8px 0; cursor:pointer; }
+.pick input, .link input { display:none; }
+.link { color:var(--accent); text-decoration:underline; cursor:pointer; }
+button.sm { font:inherit; font-size:14px; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface-alt); color:var(--text); }
+.note { color:var(--muted); font-size:14px; }
+.warn { background:var(--mod-bg); border-radius:8px; padding:10px; font-weight:600; }
+.bad { background:var(--del-bg); border-radius:8px; padding:10px; font-weight:600; }
+.good { background:var(--add-bg); border-radius:8px; padding:10px; font-weight:600; }
+.file { border-top:1px solid var(--border); padding:10px 0; }
+.file:first-child { border-top:0; }
+.file .name { font-weight:600; word-break:break-all; }
+.bar { height:10px; background:var(--surface-alt); border-radius:5px; overflow:hidden; margin:6px 0; }
+.bar > i { display:block; height:100%; width:0; background:var(--accent); }
+.st { border-radius:6px; padding:1px 6px; font-size:14px; }
+.st.received, .st.imported { background:var(--add-bg); } .st.quarantined, .st.failed, .st.missing { background:var(--del-bg); } .st.sending { background:var(--mod-bg); }
+ul.rc { list-style:none; padding:0; margin:0; }
+ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14px; word-break:break-all; }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+<h1>素材を送る</h1>
+<p class="sub" id="who">読み込んでいます…</p>
+<p class="bad" id="nokey" hidden>このリンクでは送れません。届いた URL を、そのまま全部開いてください（途中で切れていないか）。</p>
+<p class="warn" id="inline" hidden>LINE の中で開いています。うまく送れないときは、右上のメニューから「ブラウザで開く」（Safari・Chrome）で開き直してください。</p>
+
+<div id="app" hidden>
+<section>
+  <h2>1. 写真・動画を選ぶ</h2>
+  <label class="pick">写真・動画を選ぶ<input type="file" id="pick-a" multiple accept="image/*,video/*"></label>
+  <p class="note">いくつでもまとめて選べます。動画は撮ったときのまま送ります（編集・切り出しをしたものではなく、元の動画を選んでください）。</p>
+  <p class="note"><label class="link">写真アプリに無いもの（「ファイル」アプリ・iCloud Drive などに保存したもの）はこちらから選ぶ<input type="file" id="pick-b" multiple></label></p>
+  <p class="warn" id="keep" hidden>送り終わるまで: 画面を消さない・このページを閉じない・充電器と Wi-Fi につなぐ</p>
+</section>
+
+<section>
+  <h2>2. 送っているもの</h2>
+  <div id="files"><p class="note">まだありません。</p></div>
+  <p class="good" id="done" hidden></p>
+</section>
+
+<section>
+  <h2>3. このスマホから送った分</h2>
+  <p class="note">「取り込み済み」になったものは、スマホから消してかまいません。それまでは消さないでください。</p>
+  <ul class="rc" id="rc"></ul>
+  <p><button class="sm" id="refresh" type="button">状態を見直す</button></p>
+</section>
+
+<section>
+  <h2>端末の呼び名（任意）</h2>
+  <input type="text" id="device" placeholder="例: 山田の iPhone" autocomplete="off" maxlength="60">
+  <p class="note">同じ人が 2 台で撮ったときに分けるためです。次から覚えます。</p>
+</section>
+<p class="note" id="gasnote">ページの上の灰色の帯は、Google が「Google 以外の人が作ったページです」と知らせる決まりの表示です。</p>
+</div>
+</main>
+
+<script>
+// 段 0 の試験ページ(2026-10-04、#282): 選んだファイルの撮影時刻・位置・機種を、送る前にブラウザで読む。
+// 丁の受け口(段 1)でも「選んだその場で印が欠けていないかを見せる」のに同じものを使う(外部観点レビューその 3 指摘 3)。
+// 読むのはファイルの一部だけ(JPEG は頭 256KB、HEIC は meta と Exif の項目、MOV/MP4 は moov の箱)。全部は読まない。
+// node からも読める(scripts/stage0_meta_test.js)。ブラウザでは window.Stage0Meta。
+(function (root) {
+  "use strict";
+
+  const td = (bytes) => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return s; };
+  const ascii = (dv, off, n) => td(new Uint8Array(dv.buffer, dv.byteOffset + off, n));
+
+  // TIFF(Exif の中身)から、撮影時刻・時差・機種・位置の有無を読む
+  function readTiff(dv) {
+    const out = {};
+    if (dv.byteLength < 8) return out;
+    const bo = ascii(dv, 0, 2);
+    if (bo !== "II" && bo !== "MM") return out;
+    const le = bo === "II";
+    const u16 = (o) => dv.getUint16(o, le), u32 = (o) => dv.getUint32(o, le);
+    const str = (o, n) => {
+      const p = n > 4 ? u32(o + 8) : o + 8;
+      if (p + n > dv.byteLength) return "";
+      return ascii(dv, p, n).replace(/\0+$/, "").trim();
+    };
+    const ifd = (off) => {
+      const tags = {};
+      if (off + 2 > dv.byteLength) return tags;
+      const n = u16(off);
+      for (let i = 0; i < n; i++) {
+        const e = off + 2 + i * 12;
+        if (e + 12 > dv.byteLength) break;
+        tags[u16(e)] = { type: u16(e + 2), count: u32(e + 4), at: e };
+      }
+      return tags;
+    };
+    const val = (t) => (t.type === 2 ? str(t.at, t.count) : t.type === 3 ? u16(t.at + 8) : u32(t.at + 8));
+    const ifd0 = ifd(u32(4));
+    if (ifd0[0x010f]) out.make = val(ifd0[0x010f]);
+    if (ifd0[0x0110]) out.model = val(ifd0[0x0110]);
+    if (ifd0[0x8769]) {
+      const ex = ifd(val(ifd0[0x8769]));
+      if (ex[0x9003]) out.taken = val(ex[0x9003]);
+      if (ex[0x9011]) out.offset = val(ex[0x9011]);
+    }
+    if (ifd0[0x8825]) {
+      const g = ifd(val(ifd0[0x8825]));
+      out.gps = !!(g[0x0002] && g[0x0004]);  // 緯度と経度の両方があれば「位置あり」
+    } else out.gps = false;
+    return out;
+  }
+
+  function fromJpeg(dv) {
+    if (dv.byteLength < 4 || dv.getUint16(0) !== 0xffd8) return null;
+    let o = 2;
+    while (o + 4 <= dv.byteLength) {
+      if (dv.getUint8(o) !== 0xff) break;
+      const mk = dv.getUint8(o + 1), len = dv.getUint16(o + 2);
+      if (mk === 0xe1 && ascii(dv, o + 4, 6) === "Exif\0\0")
+        return readTiff(new DataView(dv.buffer, dv.byteOffset + o + 10, Math.min(len - 8, dv.byteLength - o - 10)));
+      if (mk === 0xda) break;  // 画像の本体に入ったら終わり
+      o += 2 + len;
+    }
+    return { gps: false };
+  }
+
+  // ISO の箱(box / atom)を順に読む。size 1 は 64 ビットの大きさ、0 は終わりまで
+  function boxes(dv, start, end) {
+    const list = [];
+    let o = start;
+    while (o + 8 <= end) {
+      let size = dv.getUint32(o), hdr = 8;
+      const type = ascii(dv, o + 4, 4);
+      if (size === 1) { size = Number(dv.getBigUint64(o + 8)); hdr = 16; }
+      else if (size === 0) size = end - o;
+      if (size < hdr || o + size > end) break;
+      list.push({ type, start: o, body: o + hdr, end: o + size });
+      o += size;
+    }
+    return list;
+  }
+
+  // HEIC: meta の中の iinf で Exif の項目番号を探し、iloc でファイルの中の位置を引く
+  function heicExifRange(dv) {
+    const top = boxes(dv, 0, dv.byteLength);
+    const meta = top.find((b) => b.type === "meta");
+    if (!meta) return null;
+    const kids = boxes(dv, meta.body + 4, meta.end);  // meta は版とフラグの 4 バイト付き
+    const iinf = kids.find((b) => b.type === "iinf"), iloc = kids.find((b) => b.type === "iloc");
+    if (!iinf || !iloc) return null;
+    const v = dv.getUint8(iinf.body);
+    const n = v === 0 ? dv.getUint16(iinf.body + 4) : dv.getUint32(iinf.body + 4);
+    let exifId = null;
+    for (const b of boxes(dv, iinf.body + (v === 0 ? 6 : 8), iinf.end).slice(0, n)) {
+      if (b.type !== "infe") continue;
+      const iv = dv.getUint8(b.body);
+      if (iv < 2) continue;
+      const id = iv === 2 ? dv.getUint16(b.body + 4) : dv.getUint32(b.body + 4);
+      const ty = ascii(dv, b.body + (iv === 2 ? 8 : 10), 4);
+      if (ty === "Exif") { exifId = id; break; }
+    }
+    if (exifId === null) return null;
+    let o = iloc.body;
+    const lv = dv.getUint8(o); o += 4;
+    const a = dv.getUint8(o), b2 = dv.getUint8(o + 1); o += 2;
+    const offSize = a >> 4, lenSize = a & 15, baseSize = b2 >> 4, idxSize = lv >= 1 ? b2 & 15 : 0;
+    const rd = (n) => { let x = 0; for (let i = 0; i < n; i++) x = x * 256 + dv.getUint8(o + i); o += n; return x; };
+    const count = lv < 2 ? rd(2) : rd(4);
+    for (let i = 0; i < count; i++) {
+      const id = lv < 2 ? rd(2) : rd(4);
+      const method = lv >= 1 ? rd(2) & 15 : 0;
+      rd(2);  // data_reference_index
+      const base = rd(baseSize);
+      const ext = rd(2);
+      for (let k = 0; k < ext; k++) {
+        if (idxSize) rd(idxSize);
+        const eo = rd(offSize), el = rd(lenSize);
+        if (id === exifId && k === 0) return method === 0 ? { offset: base + eo, length: el } : null;
+      }
+    }
+    return null;
+  }
+
+  function fromExifItem(dv) {  // HEIC の Exif の項目: 頭 4 バイトが TIFF までのずれ
+    if (dv.byteLength < 8) return { gps: false };
+    const skip = 4 + dv.getUint32(0);
+    return readTiff(new DataView(dv.buffer, dv.byteOffset + skip, dv.byteLength - skip));
+  }
+
+  // MOV/MP4 の moov の中身から、Apple の印(keys + ilst)・Android の位置(©xyz)・mvhd の作成時刻を読む
+  function fromMoov(dv, start, end) {
+    const out = { gps: false };
+    const walk = (s, e, depth) => {
+      for (const b of boxes(dv, s, e)) {
+        if (b.type === "mvhd" && out.mvhd === undefined) {
+          const v = dv.getUint8(b.body);
+          const secs = v === 1 ? Number(dv.getBigUint64(b.body + 4)) : dv.getUint32(b.body + 4);
+          if (secs > 0) out.mvhd = new Date((secs - 2082844800) * 1000).toISOString().replace(".000", "");
+        } else if (b.type === "\xa9xyz") {
+          out.gps = true;
+        } else if (b.type === "meta") {
+          // QuickTime の meta は版とフラグが無く、ISO の meta はある。中の最初の箱の名前で見分ける
+          const plain = ["hdlr", "keys", "ilst"].includes(ascii(dv, b.body + 4, 4));
+          readMeta(plain ? b.body : b.body + 4, b.end);
+        } else if (["trak", "udta", "mdia", "minf"].includes(b.type) && depth < 4) {
+          walk(b.body, b.end, depth + 1);
+        }
+      }
+    };
+    const readMeta = (s, e) => {
+      const kids = boxes(dv, s, e);
+      const keys = kids.find((b) => b.type === "keys"), ilst = kids.find((b) => b.type === "ilst");
+      if (!keys || !ilst) return;
+      const names = [];
+      for (const k of boxes(dv, keys.body + 8, keys.end)) names.push(ascii(dv, k.body, k.end - k.body));
+      // keys の各項目は [大きさ 4][名前空間 4][名前]。boxes は名前空間を type として読むので、本体が名前
+      for (const it of boxes(dv, ilst.body, ilst.end)) {
+        const idx = dv.getUint32(it.start + 4);
+        const data = boxes(dv, it.body, it.end).find((b) => b.type === "data");
+        if (!data || !names[idx - 1]) continue;
+        const v = ascii(dv, data.body + 8, data.end - data.body - 8);
+        const name = names[idx - 1];
+        if (name === "com.apple.quicktime.creationdate") out.taken = v;
+        else if (name === "com.apple.quicktime.location.ISO6709") out.gps = true;
+        else if (name === "com.apple.quicktime.make") out.make = v;
+        else if (name === "com.apple.quicktime.model") out.model = v;
+      }
+    };
+    walk(start, end, 0);
+    return out;
+  }
+
+  // File(ブラウザ)か、node の試験で作る同じ形のもの({size, name, slice(a,b).arrayBuffer()})を受ける
+  async function read(file) {
+    const part = async (a, b) => new DataView(await file.slice(a, Math.min(b, file.size)).arrayBuffer());
+    const head = await part(0, 262144);
+    if (head.byteLength >= 2 && head.getUint16(0) === 0xffd8) return Object.assign({ kind: "jpeg" }, fromJpeg(head));
+    const ftyp = head.byteLength >= 12 && ascii(head, 4, 4) === "ftyp" ? ascii(head, 8, 4) : "";
+    if (["heic", "heix", "mif1", "msf1", "heim", "heis", "avif"].includes(ftyp)) {
+      const r = heicExifRange(head);
+      if (!r) return { kind: "heic", gps: false, note: "Exif の項目が見つからない" };
+      return Object.assign({ kind: "heic" }, fromExifItem(await part(r.offset, r.offset + r.length)));
+    }
+    if (ftyp) {  // MOV・MP4。頭から箱の見出しだけを読んで moov を探す
+      let o = 0;
+      while (o + 16 <= file.size) {
+        const h = await part(o, o + 16);
+        let size = h.getUint32(0);
+        const type = ascii(h, 4, 4);
+        if (size === 1) size = Number(h.getBigUint64(8));
+        else if (size === 0) size = file.size - o;
+        if (size < 8) break;
+        if (type === "moov") {
+          if (size > 64 * 1024 * 1024) return { kind: "video", gps: false, note: "moov が大きすぎる" };
+          const m = await part(o, o + size);
+          const hdr = m.getUint32(0) === 1 ? 16 : 8;
+          return Object.assign({ kind: "video", brand: ftyp.trim() }, fromMoov(m, hdr, m.byteLength));
+        }
+        o += size;
+      }
+      return { kind: "video", gps: false, note: "moov が見つからない" };
+    }
+    return { kind: "other", gps: false };
+  }
+
+  const api = { read, readTiff, fromJpeg, heicExifRange, fromMoov };
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else root.Stage0Meta = api;
+})(typeof window !== "undefined" ? window : globalThis);
+</script>
+<script>
+// 受け口のページ(丁の段 1、2026-10-05、#282)が 1 本のファイルを送る仕組み。画面(page.html)とは分けて、node からも試せる
+// (apps_script/test/receiver_test.js)。ブラウザでは window.ReceiveSend。
+// 送り方は段 0 の試験ページ(scripts/stage0_page.html)と同じ: Google ドライブの再開できる送信に、8 MiB の片を PUT + Content-Range で
+// 直接送る。途中は 308 と Range、終われば 200。切れたら「どこまで届いたか」(空の PUT、bytes */全体)を聞いて続きから。
+// 段 0 にあった控え(308 を扱えないブラウザ向けの X-Stage0-No308)は外した(ドライブはそれを知らない)。
+// 送り先(セッション URI)を作るのも、送り終えたかを確かめるのも受け口(Code.gs の start・finish)。アクセストークンはここに来ない。
+(function (root) {
+  "use strict";
+  const CHUNK = 8 * 1024 * 1024;  // 256 KiB の倍数でなければならない(ドライブの決まり)
+
+  // 招待の札の中身(署名は受け口が確かめる。ここでは画面に「誰の・どの案件の」を出すために読むだけ)
+  function decodeInvite(k) {
+    try {
+      const p = String(k || "").split(".");
+      if (p.length !== 3 || p[0] !== "v1") return null;
+      const b = atob(p[1].replace(/-/g, "+").replace(/_/g, "/"));
+      const bytes = Uint8Array.from(b, (c) => c.charCodeAt(0));
+      return JSON.parse(new TextDecoder().decode(bytes));
+    } catch (e) { return null; }
+  }
+
+  // 1 回の PUT。blob が null なら「どこまで届いたか」を聞く
+  async function put(fetchFn, uri, blob, total, a, b) {
+    const h = { "Content-Range": blob ? `bytes ${a}-${b}/${total}` : `bytes */${total}` };
+    const res = await fetchFn(uri, { method: "PUT", headers: h, body: blob || "" });
+    if (res.status === 404 || res.status === 410) return { gone: true };
+    if (res.status === 200 || res.status === 201) return { done: true };
+    if (res.status === 308) {
+      const m = /bytes=0-(\d+)/.exec(res.headers.get("Range") || "");
+      return { received: m ? Number(m[1]) + 1 : 0 };
+    }
+    throw new Error("返事 " + res.status);
+  }
+
+  // 受付番号の控え(このブラウザで送った分。状態の口はこの番号の分だけ答える)
+  function receipts(store) {
+    try { return JSON.parse(store.get("receipts") || "[]"); } catch (e) { return []; }
+  }
+  function saveReceipt(store, v) {
+    const list = receipts(store).filter((x) => x.r !== v.r);
+    list.unshift(Object.assign({ at: new Date().toISOString() }, v));
+    store.set("receipts", JSON.stringify(list.slice(0, 300)));
+  }
+
+  // 1 本を送る。o = { file, meta, k, device, origin, call(fn, arg) → Promise, fetchFn, store, update(st), sleep(ms) }
+  // 返すのは受け口の finish の答え({ r, state, ... })
+  async function sendFile(o) {
+    const f = o.file, st = { size: f.size, sent: 0, msg: "準備しています" };
+    const up = (m) => { if (m) st.msg = m; if (o.update) o.update(st); };
+    const sleep = o.sleep || ((ms) => new Promise((ok) => setTimeout(ok, ms)));
+    const inv = decodeInvite(o.k) || {};
+    const key = "s:" + [inv.id, f.name, f.size, f.lastModified].join("|");
+    let saved = null;
+    try { saved = JSON.parse(o.store.get(key) || "null"); } catch (e) { saved = null; }
+    let resumed = false;
+
+    if (saved) {  // 同じファイルを選び直した: 続きから
+      let r = null;
+      try { r = await put(o.fetchFn, saved.uri, null, f.size); } catch (e) { r = null; }
+      if (r && r.done) return finishOne(o, saved, st, up, sleep, key);
+      if (r && !r.gone) { st.sent = r.received; resumed = true; }
+      if (!r || r.gone) saved = null;
+    }
+    if (!saved) {
+      up("送り先をもらっています");
+      const m = o.meta || {};
+      const got = await o.call("start", {
+        k: o.k, name: f.name, size: f.size, type: f.type, lastModified: f.lastModified, device: o.device || "",
+        origin: o.origin, meta: { taken: m.taken || m.mvhd || "", make: m.make || "", model: m.model || "", gps: !!m.gps },
+      });
+      saved = { uri: got.uri, r: got.r };
+      o.store.set(key, JSON.stringify(saved));
+      saveReceipt(o.store, { r: got.r, name: f.name, size: f.size, state: "sending" });
+    }
+
+    let retries = 0;
+    while (st.sent < f.size) {
+      const end = Math.min(st.sent + CHUNK, f.size);
+      up(`${resumed ? "続きから " : ""}送っています`);
+      let r;
+      try {
+        r = await put(o.fetchFn, saved.uri, f.slice(st.sent, end), f.size, st.sent, end - 1);
+      } catch (e) {  // 切れた: 少し待って、どこまで届いたかを聞き直す
+        if (++retries > 30) throw new Error("何度やり直しても届きません（" + e.message + "）");
+        up(`切れました。${retries} 回目のやり直しを待っています`);
+        await sleep(Math.min(30000, 1000 * retries));
+        try { r = await put(o.fetchFn, saved.uri, null, f.size); } catch (e2) { continue; }
+      }
+      if (r.gone) { o.store.del(key); throw new Error("送り先の期限が切れました。もう一度選び直してください"); }
+      if (r.done) { st.sent = f.size; break; }
+      if (r.received > st.sent) retries = 0;
+      st.sent = r.received;
+    }
+    return finishOne(o, saved, st, up, sleep, key);
+  }
+
+  async function finishOne(o, saved, st, up, sleep, key) {
+    st.sent = st.size;
+    up("届いたかを確かめています");
+    let v = null;
+    for (let i = 0; i < 6; i++) {
+      v = await o.call("finish", { k: o.k, r: saved.r });
+      if (v.state !== "sending") break;
+      await sleep(2000 * (i + 1));
+    }
+    o.store.del(key);
+    saveReceipt(o.store, { r: saved.r, name: o.file.name, size: o.file.size, state: v.state });
+    return v;
+  }
+
+  const api = { CHUNK, decodeInvite, put, receipts, saveReceipt, sendFile };
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else root.ReceiveSend = api;
+})(typeof window !== "undefined" ? window : globalThis);
+</script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const store = {  // 読めない端末(プライベートモードなど)でも動く。そのときは続きから送れないだけ
+  get(k) { try { return localStorage.getItem("kvt.receive." + k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem("kvt.receive." + k, v); } catch (e) {} },
+  del(k) { try { localStorage.removeItem("kvt.receive." + k); } catch (e) {} },
+};
+const mb = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB";
+const LABEL = { sending: "途中", received: "届きました（取り込み待ち）", imported: "取り込み済み（消してよい）",
+                quarantined: "確かめで止まりました（運用者が見ます）", missing: "見つかりません（消さずに運用者へ）", failed: "失敗" };
+const ENDPOINT = window.KVT_ENDPOINT || "";  // 外に置いた版だけ、受け口の URL が入る
+const call = ENDPOINT
+  ? async (fn, arg) => {  // Cookie を付けない(Google のログインを見せない)。text/plain にして下見の要求(preflight)を出させない
+      const res = await fetch(ENDPOINT, { method: "POST", credentials: "omit", redirect: "follow",
+                                          headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ fn, arg }) });
+      if (!res.ok) throw new Error("受け口につながりません（" + res.status + "）。少し待ってから、同じファイルを選び直してください");
+      const v = await res.json();
+      if (!v.ok) throw new Error(v.error);
+      return v.value;
+    }
+  : (fn, arg) => new Promise((ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng)[fn](arg));
+const onHash = (cb) => ENDPOINT ? cb(location.hash.replace(/^#/, "")) : google.script.url.getLocation((loc) => cb(loc.hash || ""));
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+let K = null;
+
+onHash((hash) => {
+  const m = /(?:^|&)k=([A-Za-z0-9._-]+)/.exec(hash);
+  const inv = m && ReceiveSend.decodeInvite(m[1]);
+  if (!inv) { $("who").textContent = ""; $("nokey").hidden = false; return; }
+  K = m[1];
+  const exp = new Date(inv.exp * 1000);
+  $("who").textContent = `${inv.who} さん用 ／ ${inv.case} ／ ${exp.getMonth() + 1}月${exp.getDate()}日まで`;
+  if (Date.now() > inv.exp * 1000) { $("nokey").hidden = false; $("nokey").textContent = "このリンクの期限が過ぎました。運用者に新しいリンクをもらってください。"; }
+  $("app").hidden = false;
+  drawReceipts();
+  refresh();
+});
+$("inline").hidden = !/\bLine\//i.test(navigator.userAgent);
+$("gasnote").hidden = !!ENDPOINT;
+$("device").value = store.get("device") || "";
+$("device").addEventListener("change", () => store.set("device", $("device").value));
+
+// 画面を消さない仕組み(使えない端末では、注意の文だけ)
+let wake = null, active = 0;
+async function keepAwake(on) {
+  $("keep").hidden = !on;
+  if (!("wakeLock" in navigator)) return;
+  try {
+    if (on && !wake) wake = await navigator.wakeLock.request("screen");
+    if (!on && wake) { await wake.release(); wake = null; }
+  } catch (e) { wake = null; }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && active > 0) { wake = null; keepAwake(true); } });
+
+function drawReceipts() {
+  const ul = $("rc");
+  ul.textContent = "";
+  const list = ReceiveSend.receipts(store);
+  if (!list.length) { ul.appendChild(el("li", "note", "まだありません。")); return; }
+  for (const x of list) {
+    const li = el("li");
+    li.appendChild(el("span", "st " + x.state, LABEL[x.state] || x.state));
+    li.appendChild(document.createTextNode(" " + x.name + "（" + mb(x.size) + "）"));
+    ul.appendChild(li);
+  }
+}
+async function refresh() {
+  const list = ReceiveSend.receipts(store);
+  const ask = list.filter((x) => x.state !== "imported").map((x) => x.r).slice(0, 100);
+  if (!ask.length || !K) return;
+  try {
+    const got = await call("status", { k: K, rs: ask });
+    for (const v of got) ReceiveSend.saveReceipt(store, Object.assign({}, list.find((x) => x.r === v.r) || {}, { state: v.state }));
+  } catch (e) { /* 見られなくても、手元の控えはそのまま出す */ }
+  drawReceipts();
+}
+$("refresh").addEventListener("click", refresh);
+
+function card(f) {
+  const box = el("div", "file");
+  box.appendChild(el("div", "name", f.name));
+  const info = el("div", "note", mb(f.size) + " ／ 印を読んでいます");
+  const bar = el("div", "bar"); const fill = el("i"); bar.appendChild(fill);
+  const msg = el("div", "note");
+  box.append(info, bar, msg);
+  return { box, info, fill, msg };
+}
+
+async function onPick(ev) {
+  const files = [...ev.target.files];
+  ev.target.value = "";
+  if (!files.length || !K) return;
+  if ($("files").querySelector("p.note")) $("files").textContent = "";
+  $("done").hidden = true;
+  let n = 0, bytes = 0, bad = 0;
+  active++; keepAwake(true);
+  try {
+    for (const f of files) {
+      const c = card(f);
+      $("files").prepend(c.box);
+      let meta = {};
+      try { meta = await Stage0Meta.read(f); } catch (e) { meta = {}; }
+      const taken = meta.taken || meta.mvhd;
+      c.info.textContent = mb(f.size) + " ／ 撮影時刻 " + (taken || "読めません") + (meta.model ? " ／ " + [meta.make, meta.model].filter(Boolean).join(" ") : "");
+      if (!taken) c.msg.textContent = "撮影時刻が読めません。写真アプリで編集・書き出しをしたものなら、元の写真・動画を選び直してください（このまま送ることもできます）。";
+      try {
+        const v = await ReceiveSend.sendFile({
+          file: f, meta, k: K, device: $("device").value, origin: location.origin, call, fetchFn: fetch.bind(window), store,
+          update: (st) => { c.fill.style.width = Math.floor((st.sent / st.size) * 100) + "%"; c.msg.textContent = st.msg + "（" + mb(st.sent) + " / " + mb(st.size) + "）"; },
+        });
+        c.msg.textContent = LABEL[v.state] || v.state;
+        if (v.state === "received") { n++; bytes += f.size; } else bad++;
+      } catch (e) {
+        bad++;
+        c.msg.textContent = "止まりました: " + (e && e.message || e) + "。同じファイルを選び直すと続きから送ります。";
+      }
+      drawReceipts();
+    }
+  } finally {
+    active--;
+    if (active === 0) keepAwake(false);
+  }
+  $("done").hidden = false;
+  $("done").textContent = `${n} 本・${mb(bytes)} 届きました。` + (bad ? `${bad} 本は届いていません（上の表示を見てください）。` : "") +
+    "「取り込み済み」が出るまで、スマホから消さないでください。";
+}
+$("pick-a").addEventListener("change", onPick);
+$("pick-b").addEventListener("change", onPick);
+</script>
+</body>
+</html>
