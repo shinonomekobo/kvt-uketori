@@ -76,9 +76,10 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
 
 <section>
   <h2>3. このスマホから送った分</h2>
-  <p class="note">「取り込み済み」になったものは、スマホから消してかまいません。それまでは消さないでください。</p>
+  <p class="note">運用者の PC が取りに行くと「取り込み済み」に変わります（すぐではなく、ふつうは数日のうち）。「取り込み済み」になったものは、スマホから消してかまいません。それまでは消さないでください。</p>
+  <p class="note">このページを開いたときに確かめます。開いたままなら下のボタンで確かめ直せます。</p>
   <ul class="rc" id="rc"></ul>
-  <p><button class="sm" id="refresh" type="button">状態を見直す</button></p>
+  <p><button class="sm" id="refresh" type="button">取り込まれたか確かめる</button></p>
 </section>
 
 <section>
@@ -468,7 +469,10 @@ async function keepAwake(on) {
     if (!on && wake) { await wake.release(); wake = null; }
   } catch (e) { wake = null; }
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && active > 0) { wake = null; keepAwake(true); } });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (active > 0) { wake = null; keepAwake(true); } else refresh();  // 戻ってきたら確かめ直す(送っている最中は送るのを優先)
+});
 
 function drawReceipts() {
   const ul = $("rc");
