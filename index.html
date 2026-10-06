@@ -43,6 +43,8 @@ button.sm { font:inherit; font-size:14px; padding:8px 12px; border-radius:8px; b
 .file { border-top:1px solid var(--border); padding:10px 0; }
 .file:first-child { border-top:0; }
 .file .name { font-weight:600; word-break:break-all; }
+.file.held .msg { background:var(--del-bg); border-radius:8px; padding:10px; font-weight:600; color:var(--text); }
+.choice button { margin:4px 6px 0 0; }
 .bar { height:10px; background:var(--surface-alt); border-radius:5px; overflow:hidden; margin:6px 0; }
 .bar > i { display:block; height:100%; width:0; background:var(--accent); }
 .st { border-radius:6px; padding:1px 6px; font-size:14px; }
@@ -63,6 +65,7 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
 <section>
   <h2>1. 写真・動画を選ぶ</h2>
   <label class="pick">写真・動画を選ぶ<input type="file" id="pick-a" multiple accept="image/*,video/*"></label>
+  <p class="warn" id="ios-howto">iPhone の方へ: 選ぶ画面の上の「オプション」で「現在」を選んでください（元の画質のまま届きます）。</p>
   <p class="note">いくつでもまとめて選べます。動画は撮ったときのまま送ります（編集・切り出しをしたものではなく、元の動画を選んでください）。</p>
   <p class="note"><label class="link">写真アプリに無いもの（「ファイル」アプリ・iCloud Drive などに保存したもの）はこちらから選ぶ<input type="file" id="pick-b" multiple></label></p>
   <p class="warn" id="keep" hidden>送り終わるまで: 画面を消さない・このページを閉じない・充電器と Wi-Fi につなぐ</p>
@@ -322,6 +325,27 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
     } catch (e) { return null; }
   }
 
+  // 元の動画ではないもの(iPhone の選び画面が「自動」で H.264 に書き出したもの・写真アプリで編集して書き出したもの)を、送る前に見分ける
+  // (2026-10-07、docs/questions/2026-10-06-iPhoneの動画が作り直されて届く.md §7)。元の動画は mvhd の作成時刻が撮影時刻
+  // (com.apple.quicktime.creationdate)と 2 秒以内に揃い、作り直したものは選んだ・編集した時刻になる。D: の VIDEO/ の下の Apple の印のある動画 810 本で、
+  // 元と見られる 497 本はすべて 2 秒以内、残りの 313 本(書き出し・切り出し・編集)は 158 秒以上離れていた(VIDEO/ の下だけ。その外の 46 本の元も 2 秒以内)。Apple の印が無い動画(Android など。
+  // 作成時刻が録画の終わり)は見ない
+  const REMADE_SEC = 60;
+  function parseStamp(s) {  // "2026-10-04T13:14:36+0900" / "2026-10-06T14:44:30Z" → ms。Safari の Date.parse は "+0900" を読まないので揃える
+    const m = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:?\d\d)$/.exec(String(s || "").trim());
+    if (!m) return NaN;  // 時差の分からない時刻では判定しない
+    const tz = m[2] === "Z" ? "Z" : m[2].slice(0, 3) + ":" + m[2].slice(-2);
+    return Date.parse(m[1] + tz);
+  }
+  function remadeVideo(meta, file) {
+    const m = meta || {};
+    const video = /^video\//.test((file && file.type) || "") || /\.(mov|mp4|m4v)$/i.test((file && file.name) || "");
+    if (!video || !m.taken || !m.mvhd) return false;
+    const a = parseStamp(m.taken), b = parseStamp(m.mvhd);
+    if (!isFinite(a) || !isFinite(b)) return false;
+    return Math.abs(b - a) > REMADE_SEC * 1000;
+  }
+
   // 1 回の PUT。blob が null なら「どこまで届いたか」を聞く
   async function put(fetchFn, uri, blob, total, a, b) {
     const h = { "Content-Range": blob ? `bytes ${a}-${b}/${total}` : `bytes */${total}` };
@@ -345,7 +369,8 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
     store.set("receipts", JSON.stringify(list.slice(0, 300)));
   }
 
-  // 1 本を送る。o = { file, meta, k, device, origin, call(fn, arg) → Promise, fetchFn, store, update(st), sleep(ms) }
+  // 1 本を送る。o = { file, meta, k, device, origin, call(fn, arg) → Promise, fetchFn, store, update(st), sleep(ms), edited }
+  // edited: 元でないと知らせた上で本人が「このまま送る」を選んだもの(控えに印を残し、画面で「加工した版」と出す)
   // 返すのは受け口の finish の答え({ r, state, ... })
   async function sendFile(o) {
     const f = o.file, st = { size: f.size, sent: 0, msg: "準備しています" };
@@ -373,7 +398,7 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
       });
       saved = { uri: got.uri, r: got.r };
       o.store.set(key, JSON.stringify(saved));
-      saveReceipt(o.store, { r: got.r, name: f.name, size: f.size, state: "sending" });
+      saveReceipt(o.store, Object.assign({ r: got.r, name: f.name, size: f.size, state: "sending" }, o.edited ? { edited: true } : {}));
     }
 
     let retries = 0;
@@ -400,18 +425,34 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
   async function finishOne(o, saved, st, up, sleep, key) {
     st.sent = st.size;
     up("届いたかを確かめています");
-    let v = null;
+    let v = null, lost = null, viaStatus = false;
     for (let i = 0; i < 6; i++) {
-      v = await o.call("finish", { k: o.k, r: saved.r });
+      viaStatus = false;
+      try {
+        v = await o.call("finish", { k: o.k, r: saved.r });
+      } catch (e) {
+        viaStatus = true;
+        // 受け口は確かめを終えたのに、答えだけが届かないことがある(iPhone の Safari で、送り終えた直後の finish が 404。
+        // 開き直すと「届きました」。2026-10-07 §8)。少し待って状態の口(読むだけ)で取り直し、まだなら finish をやり直す
+        lost = e;
+        up("届いたかを確かめ直しています");
+        await sleep(2000 * (i + 1));
+        let got = null;
+        try { got = await o.call("status", { k: o.k, rs: [saved.r] }); } catch (e2) { got = null; }
+        v = (got && got[0]) || null;
+        if (!v) continue;
+      }
       if (v.state !== "sending") break;
       await sleep(2000 * (i + 1));
     }
+    // finish の答えが最後まで届かず、状態の口もまだ「途中」なら止める。控え(key)は残す: 選び直すと送り直さずに確かめだけをやり直す
+    if (!v || (viaStatus && v.state === "sending")) throw lost;
     o.store.del(key);
-    saveReceipt(o.store, { r: saved.r, name: o.file.name, size: o.file.size, state: v.state });
+    saveReceipt(o.store, Object.assign({ r: saved.r, name: o.file.name, size: o.file.size, state: v.state }, o.edited ? { edited: true } : {}));
     return v;
   }
 
-  const api = { CHUNK, decodeInvite, put, receipts, saveReceipt, sendFile };
+  const api = { CHUNK, REMADE_SEC, decodeInvite, parseStamp, remadeVideo, put, receipts, saveReceipt, sendFile };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.ReceiveSend = api;
 })(typeof window !== "undefined" ? window : globalThis);
@@ -427,6 +468,8 @@ const store = {  // 読めない端末(プライベートモードなど)でも�
 const mb = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB";
 const LABEL = { sending: "途中", received: "届きました（消してよい）", imported: "取り込み済み",
                 quarantined: "確かめで止まりました（運用者が見ます）", missing: "見つかりません（消さずに運用者へ）", failed: "失敗" };
+// 元でないと知らせた上で「このまま送る」を選んだもの(§10 (甲'))は「加工した版」と出す。スマホから消してよいかは元と同じ
+const label = (x) => (x.edited && x.state === "received" ? "届きました（加工した版）" : LABEL[x.state] || x.state);
 const ENDPOINT = window.KVT_ENDPOINT || "";  // 外に置いた版だけ、受け口の URL が入る
 const call = ENDPOINT
   ? async (fn, arg) => {  // Cookie を付けない(Google のログインを見せない)。text/plain にして下見の要求(preflight)を出させない
@@ -481,7 +524,7 @@ function drawReceipts() {
   if (!list.length) { ul.appendChild(el("li", "note", "まだありません。")); return; }
   for (const x of list) {
     const li = el("li");
-    li.appendChild(el("span", "st " + x.state, LABEL[x.state] || x.state));
+    li.appendChild(el("span", "st " + x.state, label(x)));
     li.appendChild(document.createTextNode(" " + x.name + "（" + mb(x.size) + "）"));
     ul.appendChild(li);
   }
@@ -498,12 +541,28 @@ async function refresh() {
 }
 $("refresh").addEventListener("click", refresh);
 
+// 元の動画ではないものは送る前に止めて、本人に選んでもらう(選び画面が作り直したものか、本人が編集したものかは機械で分けられない)
+function askChoice(c) {
+  c.box.classList.add("held");
+  c.msg.textContent = "元の動画ではありません（iPhone が作り直したか、写真アプリで編集した動画です）。このまま送ると、元の画質（HDR）では届かないことがあります。";
+  const row = el("p", "choice");
+  const redo = el("button", "sm redo", "選び直す（おすすめ）");
+  const go = el("button", "sm go", "このまま送る（切り取った動画など）");
+  redo.type = go.type = "button";
+  row.append(redo, go);
+  c.box.appendChild(row);
+  return new Promise((ok) => {
+    redo.addEventListener("click", () => { row.remove(); ok("redo"); });
+    go.addEventListener("click", () => { row.remove(); c.box.classList.remove("held"); ok("send"); });
+  });
+}
+
 function card(f) {
   const box = el("div", "file");
   box.appendChild(el("div", "name", f.name));
   const info = el("div", "note", mb(f.size) + " ／ 印を読んでいます");
   const bar = el("div", "bar"); const fill = el("i"); bar.appendChild(fill);
-  const msg = el("div", "note");
+  const msg = el("div", "note msg");
   box.append(info, bar, msg);
   return { box, info, fill, msg };
 }
@@ -514,7 +573,7 @@ async function onPick(ev) {
   if (!files.length || !K) return;
   if ($("files").querySelector("p.note")) $("files").textContent = "";
   $("done").hidden = true;
-  let n = 0, bytes = 0, bad = 0;
+  let n = 0, bytes = 0, bad = 0, held = 0, ed = 0;
   active++; keepAwake(true);
   try {
     for (const f of files) {
@@ -525,13 +584,19 @@ async function onPick(ev) {
       const taken = meta.taken || meta.mvhd;
       c.info.textContent = mb(f.size) + " ／ 撮影時刻 " + (taken || "読めません") + (meta.model ? " ／ " + [meta.make, meta.model].filter(Boolean).join(" ") : "");
       if (!taken) c.msg.textContent = "撮影時刻が読めません。写真アプリで編集・書き出しをしたものなら、元の写真・動画を選び直してください（このまま送ることもできます）。";
+      const edited = ReceiveSend.remadeVideo(meta, f);  // 元の動画ではない(選び画面の「自動」が作り直した・編集した)。§7 (a-1)・§10 (甲')
+      if (edited && (await askChoice(c)) === "redo") {
+        held++;
+        c.msg.textContent = "送っていません: もう一度「写真・動画を選ぶ」を押し、選ぶ画面の上の「オプション」で「現在」を選んでから選び直してください。写真アプリで編集した動画を丸ごと送ってよければ、編集を元に戻してから選んでください。";
+        continue;
+      }
       try {
         const v = await ReceiveSend.sendFile({
-          file: f, meta, k: K, device: $("device").value, origin: location.origin, call, fetchFn: fetch.bind(window), store,
+          file: f, meta, k: K, device: $("device").value, origin: location.origin, call, fetchFn: fetch.bind(window), store, edited,
           update: (st) => { c.fill.style.width = Math.floor((st.sent / st.size) * 100) + "%"; c.msg.textContent = st.msg + "（" + mb(st.sent) + " / " + mb(st.size) + "）"; },
         });
-        c.msg.textContent = LABEL[v.state] || v.state;
-        if (v.state === "received") { n++; bytes += f.size; } else bad++;
+        c.msg.textContent = label(Object.assign({ edited }, v));
+        if (v.state === "received") { n++; bytes += f.size; if (edited) ed++; } else bad++;
       } catch (e) {
         bad++;
         c.msg.textContent = "止まりました: " + (e && e.message || e) + "。同じファイルを選び直すと続きから送ります。";
@@ -543,8 +608,11 @@ async function onPick(ev) {
     if (active === 0) keepAwake(false);
   }
   $("done").hidden = false;
-  $("done").textContent = `${n} 本・${mb(bytes)} 届きました。` + (bad ? `${bad} 本は届いていません（上の表示を見てください。届いていないものは消さないでください）。` : "") +
-    "届いたものは、スマホから消してかまいません。";
+  $("done").textContent = (n ? `${n} 本・${mb(bytes)} 届きました${ed ? `（うち ${ed} 本は加工した版）` : ""}。` : "") +
+    (bad ? `${bad} 本は届いていません（上の表示を見てください。届いていないものは消さないでください）。` : "") +
+    (held ? `${held} 本は送っていません（上の表示を見てください。送っていないものは消さないでください）。` : "") +
+    (n ? "届いたものは、スマホから消してかまいません。" : "");  // 何も届かなかったときは「届きました」の句を出さない
+  refresh();  // 確かめの答えが届かず「止まりました」になったものも、受け口の台帳で状態を取り直す
 }
 $("pick-a").addEventListener("change", onPick);
 $("pick-b").addEventListener("change", onPick);
