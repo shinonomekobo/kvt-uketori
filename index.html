@@ -65,7 +65,7 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
 <section>
   <h2>1. 写真・動画を選ぶ</h2>
   <label class="pick">写真・動画を選ぶ<input type="file" id="pick-a" multiple accept="image/*,video/*"></label>
-  <p class="warn" id="ios-howto">iPhone の方へ: 選ぶ画面の上の「オプション」で「現在」を選んでください（元の画質のまま届きます）。</p>
+  <p class="warn" id="ios-howto">iPhone の方へ: 選ぶ画面の「オプション」で「現在」を選んでください（元の画質のまま届きます）。</p>
   <p class="note">いくつでもまとめて選べます。動画は撮ったときのまま送ります（編集・切り出しをしたものではなく、元の動画を選んでください）。</p>
   <p class="note"><label class="link">写真アプリに無いもの（「ファイル」アプリ・iCloud Drive などに保存したもの）はこちらから選ぶ<input type="file" id="pick-b" multiple></label></p>
   <p class="warn" id="keep" hidden>送り終わるまで: 画面を消さない・このページを閉じない・充電器と Wi-Fi につなぐ</p>
@@ -587,7 +587,7 @@ async function onPick(ev) {
       const edited = ReceiveSend.remadeVideo(meta, f);  // 元の動画ではない(選び画面の「自動」が作り直した・編集した)。§7 (a-1)・§10 (甲')
       if (edited && (await askChoice(c)) === "redo") {
         held++;
-        c.msg.textContent = "送っていません: もう一度「写真・動画を選ぶ」を押し、選ぶ画面の上の「オプション」で「現在」を選んでから選び直してください。写真アプリで編集した動画を丸ごと送ってよければ、編集を元に戻してから選んでください。";
+        c.msg.textContent = "送っていません: もう一度「写真・動画を選ぶ」を押し、選ぶ画面の「オプション」で「現在」を選んでから選び直してください。写真アプリで編集した動画を丸ごと送ってよければ、編集を元に戻してから選んでください。";
         continue;
       }
       try {
