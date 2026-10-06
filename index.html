@@ -76,7 +76,7 @@ ul.rc li { border-top:1px solid var(--surface-alt); padding:6px 0; font-size:14p
 
 <section>
   <h2>3. このスマホから送った分</h2>
-  <p class="note">運用者の PC が取りに行くと「取り込み済み」に変わります（すぐではなく、ふつうは数日のうち）。「取り込み済み」になったものは、スマホから消してかまいません。それまでは消さないでください。</p>
+  <p class="note">「届きました」と出たものは、スマホから消してかまいません。そのあと運用者の PC が取りに行くと「取り込み済み」に変わります（すぐではなく、ふつうは数日のうち）。</p>
   <p class="note">このページを開いたときに確かめます。開いたままなら下のボタンで確かめ直せます。</p>
   <ul class="rc" id="rc"></ul>
   <p><button class="sm" id="refresh" type="button">取り込まれたか確かめる</button></p>
@@ -425,7 +425,7 @@ const store = {  // 読めない端末(プライベートモードなど)でも�
   del(k) { try { localStorage.removeItem("kvt.receive." + k); } catch (e) {} },
 };
 const mb = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB";
-const LABEL = { sending: "途中", received: "届きました（取り込み待ち）", imported: "取り込み済み（消してよい）",
+const LABEL = { sending: "途中", received: "届きました（消してよい）", imported: "取り込み済み",
                 quarantined: "確かめで止まりました（運用者が見ます）", missing: "見つかりません（消さずに運用者へ）", failed: "失敗" };
 const ENDPOINT = window.KVT_ENDPOINT || "";  // 外に置いた版だけ、受け口の URL が入る
 const call = ENDPOINT
@@ -543,8 +543,8 @@ async function onPick(ev) {
     if (active === 0) keepAwake(false);
   }
   $("done").hidden = false;
-  $("done").textContent = `${n} 本・${mb(bytes)} 届きました。` + (bad ? `${bad} 本は届いていません（上の表示を見てください）。` : "") +
-    "「取り込み済み」が出るまで、スマホから消さないでください。";
+  $("done").textContent = `${n} 本・${mb(bytes)} 届きました。` + (bad ? `${bad} 本は届いていません（上の表示を見てください。届いていないものは消さないでください）。` : "") +
+    "届いたものは、スマホから消してかまいません。";
 }
 $("pick-a").addEventListener("change", onPick);
 $("pick-b").addEventListener("change", onPick);
