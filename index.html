@@ -17,7 +17,10 @@
      画面に書くのは textContent だけ(上げた人が付けた名前で台本が動かないように)。
      JavaScript が無いと動かない(送ることそのものがブラウザの仕事なので)。
      画面は 3 つ(2026-10-07、ボール 24。docs/questions/2026-10-07-受け口のページの画面の分け方.md): 選ぶ(v-pick)・今回の分(v-now)・
-     前に送った分(v-past)。1 つのページの中で切り替え、外に置く版では URL の # に v=now・v=past を足して「戻る」で戻れるようにする。 -->
+     前に送った分(v-past)。1 つのページの中で切り替え、外に置く版では URL の # に v=now・v=past を足して「戻る」で戻れるようにする。
+     2026-10-09 に、運用者が決めた見本(docs/questions/2026-10-09-受け口のページの状態の見本.md の表と docs/mock/受け口の状態の見本.html)
+     どおりに作り直した: 選んでもすぐには送らず一番下の「◯ 本を送る」で送る・箱ごとに外す/取り消す・箱の右上の札と 1 文・
+     見出しの下に開始と完了・送れなかったものも前に送った分に残す・前に送った分は開いた招待の分だけ。 -->
 <style>
 :root { --bg:#f6f7f9; --surface:#fff; --surface-alt:#f0f2f5; --border:#d9dee5; --text:#1c2430; --muted:#64748b;
   --accent:#2563eb; --accent-contrast:#fff; --danger:#b91c1c; --add-bg:#e6f6ea; --del-bg:#fdecec; --mod-bg:#fff6e0;
@@ -25,6 +28,7 @@
 @media (prefers-color-scheme: dark) { :root { --bg:#11151b; --surface:#1a2029; --surface-alt:#232b36; --border:#334155;
   --text:#e5e7eb; --muted:#94a3b8; --accent:#60a5fa; --accent-contrast:#0b1220; --danger:#f87171; --add-bg:#163322;
   --del-bg:#3a1a1a; --mod-bg:#3a2f12; } }
+:root { --sending-bg:color-mix(in srgb, var(--accent) 16%, var(--surface)); }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; }
 main { max-width:640px; margin:0 auto; padding:16px; }
@@ -47,38 +51,63 @@ button.main { font-size:16px; padding:11px 14px; border-radius:8px; border:0; ba
 .bad { background:var(--del-bg); border-radius:8px; padding:10px; font-weight:600; }
 .good { background:var(--add-bg); border-radius:8px; padding:10px; font-weight:600; }
 .row { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 0; }
-/* 画面 A の「前に送った分」へのボタン(行全体を押せる) */
+/* 画面 A の「今回の分」「前に送った分」へのボタン(行全体を押せる) */
 button.go-past { display:flex; width:100%; align-items:center; justify-content:space-between; text-align:left; padding:12px 14px;
   border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
 button.go-past b { font-size:16px; }
 button.go-past .chev { color:var(--muted); font-size:20px; }
-/* 送っている間、ほかの画面の一番上に出す帯 */
-#busy { position:sticky; top:0; z-index:5; display:block; width:100%; text-align:left; border:0; border-bottom:1px solid var(--border);
+/* 送っている間だけ、画面の上に固定する帯(止まる理由の一文。2026-10-08 ボール 28 §4-3 (a)) */
+#busy { position:sticky; top:0; z-index:5; display:block; width:100%; text-align:left; border-bottom:1px solid var(--border);
   background:var(--mod-bg); padding:10px 16px; font-weight:600; }
-/* 今回の分: 1 本 = 1 つの箱。絵・何か・撮影時刻・名前・状態を箱の中に */
+#busy span { display:block; }
+/* 今回の分: 1 本 = 1 つの箱。絵・何か・札・撮影時刻・名前・文 1 つ・ボタン */
 .file { display:flex; gap:12px; border-top:1px solid var(--border); padding:12px 0; }
 .file:first-child { border-top:0; }
 .thumb { flex:0 0 64px; height:64px; border-radius:8px; overflow:hidden; background:var(--surface-alt); display:flex; align-items:center;
   justify-content:center; color:var(--muted); font-size:13px; }
 .thumb img, .thumb video { width:100%; height:100%; object-fit:cover; display:block; }
+.thumb.v { position:relative; }
+.thumb.v::after { content:""; position:absolute; left:50%; top:50%; margin:-9px 0 0 -6px; border-style:solid; border-width:9px 0 9px 15px;
+  border-color:transparent transparent transparent rgba(255,255,255,.92); filter:drop-shadow(0 0 2px rgba(0,0,0,.5)); }
 .fbody { flex:1; min-width:0; }
 .what { font-weight:600; }
+.what .nw { white-space:nowrap; }
 .file .name { color:var(--muted); font-size:13px; word-break:break-all; }
 .file .msg { font-size:14px; margin-top:4px; }
-.file.held .msg { background:var(--del-bg); border-radius:8px; padding:10px; font-weight:600; }
-.file.ok .msg { color:var(--text); }
-.file.ng .msg { background:var(--del-bg); border-radius:8px; padding:8px 10px; font-weight:600; }
+/* 札(箱の 1 行目の右端。色は札だけに持たせ、文の背景は塗らない。2026-10-09 見本の決裁 §4-3 (a)) */
+.fhead { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+.fhead .what { min-width:0; }
+.tag { flex:none; margin:2px 0 0; border-radius:6px; padding:1px 7px; font-size:13px; font-weight:600; white-space:nowrap; line-height:1.6; }
+.tag.gray { background:var(--surface-alt); border:1px solid var(--border); }
+.tag.yellow { background:var(--mod-bg); border:1px solid #e9cf8a; }
+.tag.blue { background:var(--sending-bg); border:1px solid color-mix(in srgb, var(--accent) 35%, var(--surface)); }
+.tag.green { background:var(--add-bg); border:1px solid #a9dbb5; }
+.tag.red { background:var(--del-bg); border:1px solid #f0b4b4; }
+.file .acts { display:flex; justify-content:flex-end; margin:6px 0 0; }
+.file .acts button.sm { padding:6px 14px; }
+/* 2 択のボタンは大きく、おすすめを塗る(UI/UX レビュー 指摘 10) */
 .choice { display:flex; flex-direction:column; gap:6px; margin:8px 0 0; }
-.choice button { text-align:left; }
+.choice button { text-align:left; font-size:16px; padding:12px 14px; min-height:48px; border-radius:8px; }
+.choice button.redo { background:var(--accent); color:var(--accent-contrast); border:0; font-weight:600; }
+.choice button.go { background:var(--surface); border:1px solid var(--border); }
+.file .redo-one { display:block; width:100%; margin:8px 0 0; min-height:48px; }
 .bar { height:8px; background:var(--surface-alt); border-radius:4px; overflow:hidden; margin:6px 0 0; }
 .bar > i { display:block; height:100%; width:0; background:var(--accent); }
-.st { border-radius:6px; padding:1px 6px; font-size:14px; white-space:nowrap; }
-.st.received, .st.imported { background:var(--add-bg); } .st.quarantined, .st.failed, .st.missing { background:var(--del-bg); } .st.sending { background:var(--mod-bg); }
+/* 一番下の大きな送るボタン(2 択が残っている間は押せず、上に押せない理由の 1 行) */
+button.send { display:block; width:100%; text-align:center; background:var(--accent); color:var(--accent-contrast); border:0; border-radius:var(--radius);
+  padding:16px; font-size:18px; font-weight:600; margin:12px 0 0; }
+button.send:disabled { background:var(--surface-alt); color:var(--muted); border:1px solid var(--border); }
+.send-why { margin:10px 0 0; }
+.bottom { margin:12px 0 0; }
+.bottom p { margin:0; }
 /* 前に送った分: 送った日で見出し、1 行 = 1 回送ったもの */
 ul.rc { list-style:none; padding:0; margin:0; }
 ul.rc li { border-top:1px solid var(--surface-alt); padding:8px 0; font-size:14px; }
 ul.rc li .t { font-weight:600; font-variant-numeric:tabular-nums; margin-right:6px; }
+ul.rc li .l1 { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
 ul.rc li .nm { color:var(--muted); word-break:break-all; }
+ul.rc li .orig { display:inline-block; margin-left:6px; font-size:12px; border:1px solid var(--border); border-radius:5px; padding:0 5px; color:var(--text); }
+ul.rc li .why { margin-top:4px; background:var(--surface-alt); border-radius:6px; padding:6px 8px; }
 ul.rc li .dup { color:var(--muted); }
 .back { border:0; background:none; color:var(--accent); padding:10px 12px 10px 0; min-height:44px; margin:0 0 4px; font-size:16px; }
 /* 道順(番号付き)。iPhone の選ぶ画面の押す順を 1 段ずつ(2026-10-07 UI/UX レビュー 指摘 2) */
@@ -88,27 +117,13 @@ ul.rc li .dup { color:var(--muted); }
 .steps ol { margin:4px 0 0; padding-left:1.5em; }
 .steps li { margin:3px 0; }
 .steps .note { margin:6px 0 0; }
-/* 2 択のボタンは大きく、おすすめを塗る(指摘 10)。「選び直す」を選んだ箱は赤をやめる(赤は届かなかったものだけ。指摘 8) */
-.choice button { font-size:16px; padding:12px 14px; min-height:48px; border-radius:8px; }
-.choice button.redo { background:var(--accent); color:var(--accent-contrast); border:0; font-weight:600; }
-.choice button.go { background:var(--surface); border:1px solid var(--border); }
-.file .redo-one { display:block; width:100%; margin:8px 0 0; min-height:48px; }
-.file.skip .msg { background:var(--surface-alt); border-radius:8px; padding:10px; }
 /* 「選び直す」を押したときにその場で開く選ぶ画面(見えない入れ物。display:none だと開かない端末があるため画面の外に置く) */
-/* まとめの箱(色はまとめの結果で good / warn)。送らなかったものがあれば、同じ箱の中に道順を続ける(UI/UX レビュー 指摘 8) */
-#sum { border-radius:8px; padding:10px; margin:10px 0 0; }
-#sum p { margin:0; }
-#sum .in { font-weight:400; font-size:15px; margin:10px 0 0; padding:10px 0 0; border-top:1px solid var(--border); }
-#sum .in b { display:block; }
-#sum .in ol { margin:4px 0 0; padding-left:1.5em; }
-#sum .in li { margin:3px 0; }
-#sum .in .note { margin:6px 0 0; }
 .offscreen { position:absolute; left:-9999px; width:1px; height:1px; opacity:0; }
 [hidden] { display:none !important; }
 </style>
 </head>
 <body>
-<button type="button" id="busy" hidden></button>
+<div id="busy" hidden><span id="busy1">送り終わるまで、このページを開いたままにしてください。ほかのアプリに切り替えたり画面を消したりすると止まります（止まっても、同じものを選び直せば続きから送ります）。</span><span id="busy2" hidden>大きいので、Wi-Fi だと早く送れます。</span></div>
 <main>
 <h1>写真・動画を送る</h1>
 <p class="sub" id="who">読み込んでいます…</p>
@@ -125,6 +140,7 @@ ul.rc li .dup { color:var(--muted); }
   <p class="note">いくつでもまとめて選べます。動画は、編集や切り取りをしていない元のものを選んでください。</p>
   <p class="note"><label class="link">「ファイル」アプリに保存したものはこちらから選ぶ<input type="file" id="pick-b" multiple></label></p>
 </section>
+<p id="to-now-p" hidden><button type="button" class="go-past" id="to-now"><span><b>今回の分</b><br><span class="note" id="now-sum"></span></span><span class="chev">›</span></button></p>
 <p><button type="button" class="go-past" id="to-past"><span><b>前に送った分</b><br><span class="note" id="past-sum">まだありません。</span></span><span class="chev">›</span></button></p>
 <section>
   <h2>このスマホの呼び名（書かなくてよい）</h2>
@@ -134,31 +150,31 @@ ul.rc li .dup { color:var(--muted); }
 <p class="note" id="gasnote">ページの上の灰色の帯は、Google が「Google 以外の人が作ったページです」と知らせる決まりの表示です。</p>
 </div>
 
-<!-- 画面 B: 今回の分(選んだ直後から。送る前に確かめる → 送っている → 結果、に同じ画面のまま変わる。見出しは結果で替える:
-     送っていないのに「送り終えました」と出さない(2026-10-07 運用者の感想)。送らなかったものがあれば、この画面からすぐ選び直せる) -->
+<!-- 画面 B: 今回の分(選んだ直後から。送る前 → 送っている → 結果、に同じ画面のまま変わる。選んでもすぐには送らず、一番下の
+     「◯ 本を送る」で送る。2026-10-08 ボール 28 §4-1 (a)。並びと札は docs/mock/受け口の状態の見本.html) -->
 <div id="v-now" hidden>
 <section>
-  <h2 id="now-title">今回の分</h2>
+  <h2 id="now-title">まだ送っていません</h2>
   <p class="note" id="now-sub"></p>
-  <p class="warn" id="keep" hidden>送り終わるまで: 画面を消さない・このページを閉じない・充電器と Wi-Fi につなぐ</p>
-  <p class="bad" id="ask" hidden></p>
-  <div class="steps" id="ask-howto" hidden><b>「選び直す」を押すと、選ぶ画面が開きます</b>
-    <ol><li>出てきたメニューで「フォトライブラリ」を押す</li><li>「オプション」を押し、「フォーマット」を「現在」にする</li><li>同じ動画を選び、「追加」を押す</li></ol>
-    <p class="note">自分で編集した動画を丸ごと送ってよければ、写真アプリで編集を元に戻してから選んでください。</p></div>
   <input type="file" id="pick-r" class="offscreen" multiple accept="image/*,video/*" tabindex="-1" aria-hidden="true">
   <div id="files"></div>
-  <div class="good" id="sum" hidden><p id="done" hidden></p>
-    <div class="in" id="redo-steps" hidden><b>選び直すときは</b>
-      <ol><li>その動画の「この動画を選び直す」を押す</li><li>出てきたメニューで「フォトライブラリ」を押す</li><li>「オプション」を押し、「フォーマット」を「現在」にする</li><li>同じ動画を選び、「追加」を押す</li></ol>
-      <p class="note">自分で編集した動画を丸ごと送ってよければ、写真アプリで編集を元に戻してから選んでください。</p></div></div>
+  <div class="steps" id="howto-ask" hidden><b>「選び直す」を押すと、選ぶ画面が開きます</b>
+    <ol><li>出てきたメニューで「フォトライブラリ」を押す</li><li>「オプション」を押し、「フォーマット」を「現在」にする</li><li>同じ動画を選び、「追加」を押す</li></ol>
+    <p class="note">自分で編集した動画を丸ごと送ってよければ、写真アプリで編集を元に戻してから選んでください。</p></div>
+  <div class="steps" id="howto-redo" hidden><b>選び直すときは</b>
+    <ol><li>その動画の「この動画を選び直す」を押す</li><li>出てきたメニューで「フォトライブラリ」を押す</li><li>「オプション」を押し、「フォーマット」を「現在」にする</li><li>同じ動画を選び、「追加」を押す</li></ol>
+    <p class="note">自分で編集した動画を丸ごと送ってよければ、写真アプリで編集を元に戻してから選んでください。</p></div>
+  <p class="note send-why" id="send-why" hidden>黄色の札の動画で「選び直す」か「このまま送る」を押すと、送れるようになります。</p>
+  <button type="button" class="send" id="send" hidden></button>
+  <div class="bottom" id="sum" hidden><p id="done"></p></div>
   <div class="row" id="next" hidden>
-    <button type="button" class="main" id="again">続けて選ぶ</button>
+    <button type="button" class="sm" id="again">続けて選ぶ</button>
     <button type="button" class="sm" id="now-past">前に送った分を見る</button>
   </div>
 </section>
 </div>
 
-<!-- 画面 C: 前に送った分 -->
+<!-- 画面 C: 前に送った分(開いたリンクの招待の分だけ。2026-10-09 見本の決裁 §4-2 (a)) -->
 <div id="v-past" hidden>
 <button type="button" class="back" id="past-back">‹ 戻る</button>
 <section>
@@ -166,6 +182,7 @@ ul.rc li .dup { color:var(--muted); }
   <p class="note" id="checked"></p>
   <div id="rc"></div>
   <p class="row"><button class="sm" id="refresh" type="button">確かめ直す</button></p>
+  <p class="row" id="clear-p" hidden><button class="sm" id="clear" type="button">この一覧を消す（このスマホの記録だけ。届いたものは消えません）</button></p>
 </section>
 <p class="note">「届きました」と出たものは、スマホから消してかまいません。そのあと受け取る側の PC が取り込むと「取り込み済み」に変わります（すぐではなく、ふつうは数日のうち）。</p>
 </div>
@@ -391,6 +408,12 @@ ul.rc li .dup { color:var(--muted); }
 (function (root) {
   "use strict";
   const CHUNK = 8 * 1024 * 1024;  // 256 KiB の倍数でなければならない(ドライブの決まり)
+  // 受け口(Code.gs の EXTS)が受ける種類。ページはこれで選んだ時点に見分け、受け口に頼まずに理由を言う(2026-10-07 運用者の感想:
+  // PNG の画面の写しが「止まりました: 写真か動画のファイルを選んでください。少し待ってから…続きから送ります」になり、待っても通らない)。
+  // 受け口と食い違わないことは apps_script/test/receiver_test.js が Code.gs を読んで確かめる
+  const EXTS = ["jpg", "jpeg", "heic", "heif", "mov", "mp4", "m4v", "3gp"];
+  const extOf = (name) => { const m = /\.([^./\\]+)$/.exec(String(name || "")); return m ? m[1].toLowerCase() : ""; };
+  const accepted = (name) => EXTS.includes(extOf(name));
 
   // 招待の札の中身(署名は受け口が確かめる。ここでは画面に「誰の・どの案件の」を出すために読むだけ)
   function decodeInvite(k) {
@@ -424,10 +447,15 @@ ul.rc li .dup { color:var(--muted); }
     return Math.abs(b - a) > REMADE_SEC * 1000;
   }
 
-  // 1 回の PUT。blob が null なら「どこまで届いたか」を聞く
-  async function put(fetchFn, uri, blob, total, a, b) {
+  // 1 回の PUT。blob が null なら「どこまで届いたか」を聞く。onProgress(この片のうち送れたバイト数) は、送り手(fetchFn)が
+  // 片の途中の進みを知らせられるときだけ呼ばれる(ページの XMLHttpRequest の送り手。fetch は送る途中の進みを知らせない)
+  // signal: 取り消し(AbortSignal)。片を送る PUT にだけ渡し、送り手(fetch・XMLHttpRequest)がその片の送信を止める
+  async function put(fetchFn, uri, blob, total, a, b, onProgress, signal) {
     const h = { "Content-Range": blob ? `bytes ${a}-${b}/${total}` : `bytes */${total}` };
-    const res = await fetchFn(uri, { method: "PUT", headers: h, body: blob || "" });
+    const init = { method: "PUT", headers: h, body: blob || "" };
+    if (blob && onProgress) init.onUploadProgress = onProgress;
+    if (blob && signal) init.signal = signal;
+    const res = await fetchFn(uri, init);
     if (res.status === 404 || res.status === 410) return { gone: true };
     if (res.status === 200 || res.status === 201) return { done: true };
     if (res.status === 308) {
@@ -442,6 +470,10 @@ ul.rc li .dup { color:var(--muted); }
     try { return JSON.parse(store.get("receipts") || "[]"); } catch (e) { return []; }
   }
   // 同じ受付番号の控えは足し合わせる(送り始めた時刻 at・撮影時刻などの添え書きは、状態が変わっても残す。2026-10-07 ボール 24)
+  // 控えの添え書き(2026-10-09、見本の決裁 §4-1 (a)・§4-2 (a)): inv = 招待の id(前に送った分の画面は開いた招待の分だけを出す)、
+  // stop = 止まった訳("start" 送り先をもらう前につながらない・"net" 途中でつながらない・"gone" 送り先が無くなった・
+  // "refused" 受け口が断った(why に受け口の決まった文)・"cancel" 本人が取り消した)。届けば stop は消す。
+  // local = 送り先をもらう前に止まったもの(受付番号が無いので、この控えの中だけの番号。状態の口には聞かない)
   function saveReceipt(store, v) {
     const all = receipts(store);
     const old = all.find((x) => x.r === v.r) || {};
@@ -454,11 +486,42 @@ ul.rc li .dup { color:var(--muted); }
   // edited: 元でないと知らせた上で本人が「このまま送る」を選んだもの(控えに印を残し、画面で「加工した版」と出す)
   // info: 控えに添える画面用の書き添え({ kind: "動画"|"写真", dur: 秒, taken: 撮影時刻 }。前に送った分の画面で出す)
   // 返すのは受け口の finish の答え({ r, state, ... })
+  // 止まったときの Error には stage を付ける: "start"(送り先を作る)・"send"(送っている途中)・"gone"(送り先が無くなった。最初から送り直す)・
+  // "finish"(届いたかの確かめ)。
+  // 受け口が決まった文で断ったもの(呼ぶ側の call が e.receiver を付ける)は待っても通らないので、画面は「続きから送ります」と言わない
+  // "cancel"(本人が取り消した。o.signal が止められた)も同じ印で知らせる。
+  // 止まったものも控えに残す(送り先をもらう前に止まったもの・受け口が断ったものも。2026-10-09 見本の決裁 §4-1 (a))
+  const staged = (e, stage) => { const x = e instanceof Error ? e : new Error(String(e)); if (!x.stage) x.stage = stage; return x; };
+  const cancelled = (o) => !!(o.signal && o.signal.aborted);
+  const cancelErr = () => staged(new Error("取り消しました"), "cancel");
+  function stopKind(e) {
+    if (e && e.stage === "cancel") return "cancel";
+    if (e && e.receiver) return "refused";
+    return e && (e.stage === "start" || e.stage === "gone") ? e.stage : "net";
+  }
+  function recordStop(o, inv, r, e) {
+    const kind = stopKind(e), f = o.file;
+    const why = kind === "refused" ? String((e && e.message) || "") : null;
+    if (r) return saveReceipt(o.store, { r, stop: kind, why });
+    if (kind === "cancel") return;  // 送り始める前に取り消した: 何も起きていないので残さない
+    saveReceipt(o.store, Object.assign({}, o.info || {}, {
+      r: "local-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), local: true, inv: inv.id, name: f.name, size: f.size,
+      state: "stopped", stop: kind, why }, o.edited ? { edited: true } : {}));
+  }
+  // st.sent は受け口(ドライブ)が受け取ったと答えた所まで。st.shown は画面に出す所(送っている片の途中を含む)
+  // o.signal(任意): 取り消し。止めると送っている片の送信を止め、次の片を送らない。送り先の控え(key)は消さないので、
+  // 同じものを選び直すと続きから送る(受け口には取り消しの口が無い。台帳では「途中」のまま。2026-10-08 ボール 28 §4-2 (a))。
+  // 送り終えて届いたかを確かめている間は止めない(届いたものは届いたと言う)。
+  // o.started(r)(任意): 受付番号が決まったら呼ぶ(前に送った分の画面が「送っています」と出すため)
   async function sendFile(o) {
-    const f = o.file, st = { size: f.size, sent: 0, msg: "準備しています" };
-    const up = (m) => { if (m) st.msg = m; if (o.update) o.update(st); };
+    const inv = decodeInvite(o.k) || {}, ctx = { r: null };
+    try { return await sendOne(o, inv, ctx); }
+    catch (e) { try { recordStop(o, inv, ctx.r, e); } catch (e2) {} throw e; }
+  }
+  async function sendOne(o, inv, ctx) {
+    const f = o.file, st = { size: f.size, sent: 0, shown: 0, msg: "準備しています" };
+    const up = (m) => { if (m) st.msg = m; st.shown = Math.min(Math.max(st.sent, st.shown), st.size); if (o.update) o.update(st); };
     const sleep = o.sleep || ((ms) => new Promise((ok) => setTimeout(ok, ms)));
-    const inv = decodeInvite(o.k) || {};
     const key = "s:" + [inv.id, f.name, f.size, f.lastModified].join("|");
     let saved = null;
     try { saved = JSON.parse(o.store.get(key) || "null"); } catch (e) { saved = null; }
@@ -467,45 +530,58 @@ ul.rc li .dup { color:var(--muted); }
     if (saved) {  // 同じファイルを選び直した: 続きから
       let r = null;
       try { r = await put(o.fetchFn, saved.uri, null, f.size); } catch (e) { r = null; }
+      if (r && !r.gone) { ctx.r = saved.r; if (o.started) o.started(saved.r); saveReceipt(o.store, Object.assign({}, o.info || {}, { r: saved.r, inv: inv.id, name: f.name, size: f.size, state: "sending", stop: null, why: null }, o.edited ? { edited: true } : {})); }
       if (r && r.done) return finishOne(o, saved, st, up, sleep, key);
       if (r && !r.gone) { st.sent = r.received; resumed = true; }
       if (!r || r.gone) saved = null;
     }
     if (!saved) {
+      if (cancelled(o)) throw cancelErr();
       up("送る準備をしています");
       const m = o.meta || {};
-      const got = await o.call("start", {
-        k: o.k, name: f.name, size: f.size, type: f.type, lastModified: f.lastModified, device: o.device || "",
-        origin: o.origin, meta: { taken: m.taken || m.mvhd || "", make: m.make || "", model: m.model || "", gps: !!m.gps },
-      });
+      let got;
+      try {
+        got = await o.call("start", {
+          k: o.k, name: f.name, size: f.size, type: f.type, lastModified: f.lastModified, device: o.device || "",
+          origin: o.origin, meta: { taken: m.taken || m.mvhd || "", make: m.make || "", model: m.model || "", gps: !!m.gps },
+        });
+      } catch (e) { throw staged(e, "start"); }
       saved = { uri: got.uri, r: got.r };
       o.store.set(key, JSON.stringify(saved));
-      saveReceipt(o.store, Object.assign({}, o.info || {}, { r: got.r, name: f.name, size: f.size, state: "sending" }, o.edited ? { edited: true } : {}));
+      ctx.r = got.r;
+      saveReceipt(o.store, Object.assign({}, o.info || {}, { r: got.r, inv: inv.id, name: f.name, size: f.size, state: "sending" }, o.edited ? { edited: true } : {}));
+      if (o.started) o.started(got.r);
     }
 
     let retries = 0;
     while (st.sent < f.size) {
-      const end = Math.min(st.sent + CHUNK, f.size);
-      up(`${resumed ? "続きから " : ""}送っています`);
+      if (cancelled(o)) throw cancelErr();
+      const end = Math.min(st.sent + CHUNK, f.size), from = st.sent;
+      const label = `${resumed ? "続きから " : ""}送っています`;
+      st.shown = from;
+      up(label);
       let r;
       try {
-        r = await put(o.fetchFn, saved.uri, f.slice(st.sent, end), f.size, st.sent, end - 1);
-      } catch (e) {  // 切れた: 少し待って、どこまで届いたかを聞き直す
-        if (++retries > 30) throw new Error("何度やり直しても届きません（" + e.message + "）");
+        r = await put(o.fetchFn, saved.uri, f.slice(st.sent, end), f.size, st.sent, end - 1, (n) => { st.shown = from + n; up(label); }, o.signal);
+      } catch (e) {  // 切れた: 少し待って、どこまで届いたかを聞き直す(取り消したのなら、やり直さない)
+        if (cancelled(o)) throw cancelErr();
+        if (++retries > 30) throw staged(new Error("何度やり直しても届きません（" + e.message + "）"), "send");
         up(`切れました。${retries} 回目のやり直しを待っています`);
         await sleep(Math.min(30000, 1000 * retries));
+        if (cancelled(o)) throw cancelErr();
         try { r = await put(o.fetchFn, saved.uri, null, f.size); } catch (e2) { continue; }
       }
-      if (r.gone) { o.store.del(key); throw new Error("送り先の期限が切れました。もう一度選び直してください"); }
+      // 送り先が無くなった: 控えの鍵を消すので、選び直すと最初から送る(画面は「続きから」と言わない。stage "gone")
+      if (r.gone) { o.store.del(key); throw staged(new Error("送り先の期限が切れました。もう一度選び直してください"), "gone"); }
       if (r.done) { st.sent = f.size; break; }
       if (r.received > st.sent) retries = 0;
-      st.sent = r.received;
+      st.sent = st.shown = r.received;  // 届いたと答えた所に合わせ直す(片の途中で切れたら、出していた所より戻ることがある)
     }
     return finishOne(o, saved, st, up, sleep, key);
   }
 
   async function finishOne(o, saved, st, up, sleep, key) {
-    st.sent = st.size;
+    st.sent = st.shown = st.size;
     up("届いたか確かめています");
     let v = null, lost = null, viaStatus = false;
     for (let i = 0; i < 6; i++) {
@@ -528,13 +604,16 @@ ul.rc li .dup { color:var(--muted); }
       await sleep(2000 * (i + 1));
     }
     // finish の答えが最後まで届かず、状態の口もまだ「途中」なら止める。控え(key)は残す: 選び直すと送り直さずに確かめだけをやり直す
-    if (!v || (viaStatus && v.state === "sending")) throw lost;
+    if (!v || (viaStatus && v.state === "sending")) throw staged(lost, "finish");
     o.store.del(key);
-    saveReceipt(o.store, Object.assign({ r: saved.r, name: o.file.name, size: o.file.size, state: v.state }, o.edited ? { edited: true } : {}));
+    // end: 受け口が確かめを終えた(届いた・止めた)のをこのスマホが知った時刻。前に送った分の画面に「開始」と並べて「完了」と出す
+    // (2026-10-07 運用者の感想)。開き直して状態の口で知ったものには付けない(知った時刻は届いた時刻ではないので)
+    const fin = v.state !== "sending" ? { end: new Date().toISOString() } : {};
+    saveReceipt(o.store, Object.assign({ r: saved.r, name: o.file.name, size: o.file.size, state: v.state, stop: null, why: null }, fin, o.edited ? { edited: true } : {}));
     return v;
   }
 
-  const api = { CHUNK, REMADE_SEC, decodeInvite, parseStamp, remadeVideo, put, receipts, saveReceipt, sendFile };
+  const api = { CHUNK, EXTS, extOf, accepted, REMADE_SEC, decodeInvite, parseStamp, remadeVideo, put, receipts, saveReceipt, sendFile, stopKind };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.ReceiveSend = api;
 })(typeof window !== "undefined" ? window : globalThis);
@@ -547,13 +626,14 @@ const store = {  // 読めない端末(プライベートモードなど)でも�
   set(k, v) { try { localStorage.setItem("kvt.receive." + k, v); } catch (e) {} },
   del(k) { try { localStorage.removeItem("kvt.receive." + k); } catch (e) {} },
 };
-const mb = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB";
-const LABEL = { sending: "途中", received: "届きました（消してよい）", imported: "取り込み済み",
-                quarantined: "確かめで止まりました（受け取る側が見ます）", missing: "見つかりません（消さずに、受け取る側に知らせてください）", failed: "失敗" };
-const SHORT = { sending: "途中", received: "届きました", imported: "取り込み済み", quarantined: "確かめで止まりました",
-                missing: "見つかりません", failed: "失敗" };
-// 元でないと知らせた上で「このまま送る」を選んだもの(§10 (甲'))は「加工した版」と出す。スマホから消してよいかは元と同じ
-const label = (x) => (x.edited && x.state === "received" ? "届きました（加工した版）" : LABEL[x.state] || x.state);
+const mb = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : !(n > 0) ? "0 KB" : Math.max(1, Math.round(n / 1e3)) + " KB";
+// 決まった文(docs/questions/2026-10-09-受け口のページの状態の見本.md §1。英語の失敗の文(Load failed など)は画面に出さず、これにまとめる)
+const T_NET = "つながりませんでした。このページを開いたまま、同じ写真・動画をもう一度選ぶと続きから送ります。";   // §1 の 11
+const T_NET0 = "つながりませんでした。このページを開いたまま、同じ写真・動画をもう一度選んでください。";       // §1 の 11(送り先をもらう前)
+const T_CANCEL = "もう一度選べば、続きから送ります。";                                                         // §1 の 10
+// 受け口の確かめで止まったもの(受け口の状態の名前。前からの文)
+const LONG = { quarantined: "確かめで止まりました（受け取る側が見ます）", missing: "見つかりません（消さずに、受け取る側に知らせてください）" };
+const endDot = (m) => String(m || "").replace(/。$/, "") + "。";  // 受け口の文は「〜してください」で終わるものがあるので句点だけ足す
 const ENDPOINT = window.KVT_ENDPOINT || "";  // 外に置いた版だけ、受け口の URL が入る
 const POLL_MS = window.KVT_POLL_MS || 30000;           // 前に送った分の画面を開いている間、状態を聞き直す間隔
 const POLL_FOR_MS = window.KVT_POLL_FOR_MS || 300000;  // 聞き続けるのはここまで(受け口はそのたびにドライブへ 1 本ずつ問い合わせるので)
@@ -563,27 +643,63 @@ const call = ENDPOINT
                                           headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ fn, arg }) });
       if (!res.ok) throw new Error("送り先につながりません（" + res.status + "）");
       const v = await res.json();
-      if (!v.ok) throw new Error(v.error);
+      if (!v.ok) { const e = new Error(v.error); e.receiver = true; throw e; }  // 受け口が決まった文で断った(待っても通らない)
       return v.value;
     }
-  : (fn, arg) => new Promise((ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng)[fn](arg));
+  : (fn, arg) => new Promise((ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler((e) => {
+      // 受け口が投げた文か、つながらなかったか(google.script.run は NetworkError の名で知らせる)
+      const x = e instanceof Error ? e : new Error(String(e && e.message || e));
+      if (!/network/i.test(String(x.name) + " " + x.message)) x.receiver = true;
+      ng(x);
+    })[fn](arg));
+// 片を送る PUT だけ XMLHttpRequest で送り、片の途中の進みをバーに出す(fetch は送る途中の進みを知らせない。2026-10-07 運用者の感想:
+// 送り始めてしばらく動かず、一気に何十パーセントも動く)。返すのは fetch の答えと同じ形(status と headers.get)。
+// XMLHttpRequest で一度も通らないうちに失敗したら、このページを開いている間は fetch に戻す(進みは片ごとになるが、送れなくはならない)。
+// 失敗した片はここで送り直さない: 呼ぶ側(send.js)が「どこまで届いたか」を聞き直して続きから送る。
+// init.signal(取り消し)が止められたら、その片の送信を止める(本人が止めたものは「XMLHttpRequest が使えない」に数えない)
+let xhrWorks = typeof XMLHttpRequest !== "undefined" ? null : false;
+function sendPut(url, init) {
+  if (!init.onUploadProgress || xhrWorks === false || !(init.body && init.body.size)) {
+    const { onUploadProgress, ...plain } = init;
+    return fetch(url, plain);
+  }
+  return new Promise((ok, ng) => {
+    const x = new XMLHttpRequest();
+    let byUser = false;
+    x.open(init.method, url);
+    for (const [h, v] of Object.entries(init.headers || {})) x.setRequestHeader(h, v);
+    x.upload.onprogress = (e) => init.onUploadProgress(e.loaded);
+    x.onload = () => { xhrWorks = true; ok({ status: x.status, headers: { get: (h) => x.getResponseHeader(h) } }); };
+    x.onerror = x.ontimeout = () => { if (xhrWorks !== true) xhrWorks = false; ng(new TypeError("送っている途中で切れました")); };
+    x.onabort = () => { if (!byUser && xhrWorks !== true) xhrWorks = false; ng(new TypeError("送っている途中で切れました")); };
+    if (init.signal) {
+      if (init.signal.aborted) return ng(new TypeError("取り消しました"));
+      init.signal.addEventListener("abort", () => { byUser = true; x.abort(); }, { once: true });
+    }
+    x.send(init.body);
+  });
+}
 const onHash = (cb) => ENDPOINT ? cb(location.hash.replace(/^#/, "")) : google.script.url.getLocation((loc) => cb(loc.hash || ""));
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 const two = (n) => String(n).padStart(2, "0");
 const WD = "日月火水木金土";
 const hm = (d) => two(d.getHours()) + ":" + two(d.getMinutes());
-const dayHead = (d) => `${d.getMonth() + 1}月${d.getDate()}日（${WD[d.getDay()]}）`;
+const md = (d) => `${d.getMonth() + 1}月${d.getDate()}日`;
+const dayHead = (d) => `${md(d)}（${WD[d.getDay()]}）`;
 // 撮影時刻: 時差の分かるもの(動画の印・mvhd)はこのスマホの時刻に直し、分からないもの(写真の Exif)は書いてあるまま
 function shotAt(s) {
   if (!s) return "";
   const t = ReceiveSend.parseStamp(s);
-  if (isFinite(t)) { const d = new Date(t); return `${d.getMonth() + 1}月${d.getDate()}日 ${hm(d)}`; }
+  if (isFinite(t)) { const d = new Date(t); return `${md(d)} ${hm(d)}`; }
   const m = /^(\d{4})[-:](\d\d)[-:](\d\d)[T ](\d\d):(\d\d)/.exec(String(s));
   return m ? `${Number(m[2])}月${Number(m[3])}日 ${m[4]}:${m[5]}` : "";
 }
 const durText = (s) => !(s > 0) ? "" : s < 60 ? Math.max(1, Math.round(s)) + " 秒" : Math.floor(s / 60) + " 分 " + Math.round(s % 60) + " 秒";
-const whatText = (kind, dur, size) => [kind + (dur ? " " + durText(dur) : ""), size ? mb(size) : ""].filter(Boolean).join("・");
-let K = null;
+const kindText = (kind, dur) => kind + (dur ? " " + durText(dur) : "");
+let K = null, INV_ID = null;
+// この招待の控えか(招待の id の無い前からの控えは、どの招待で開いても出す。持っているのは運用者だけのため)
+const mine = (x) => !x.inv || x.inv === INV_ID;
+const myReceipts = () => ReceiveSend.receipts(store).filter(mine);
 
 // ---- 画面の切り替え ----------------------------------------------------------
 let view = "pick";
@@ -594,17 +710,17 @@ function show(v, push) {
     const base = location.hash.replace(/&v=[a-z]+/, "");
     try { history.pushState({ v }, "", v === "pick" ? base || "#" : base + "&v=" + v); } catch (e) {}
   }
-  if (v === "pick") { drawSummary(); if (!active) clearDone(); }
+  if (v === "pick") drawSummary();
   if (v === "past") { drawReceipts(); startPoll(); } else stopPoll();
   drawBusy();
   window.scrollTo(0, 0);
 }
 window.addEventListener("popstate", () => { const m = /&v=([a-z]+)/.exec(location.hash); show(m && (m[1] === "past" || (m[1] === "now" && batch)) ? m[1] : "pick", false); });
 $("to-past").addEventListener("click", () => show("past", true));
+$("to-now").addEventListener("click", () => show("now", true));
 $("now-past").addEventListener("click", () => show("past", true));
-$("past-back").addEventListener("click", () => (ENDPOINT && history.state && history.state.v ? history.back() : show("pick", false)));
-$("again").addEventListener("click", () => { show("pick", true); });
-$("busy").addEventListener("click", () => show("now", true));
+$("past-back").addEventListener("click", () => (ENDPOINT && history.state && history.state.v ? history.back() : show(batch ? "now" : "pick", false)));
+$("again").addEventListener("click", () => show("pick", true));  // 選ぶ画面で選ぶと、送り終えていない今回の分に箱を足す
 
 $("inline").hidden = !/\bLine\//i.test(navigator.userAgent);
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
@@ -613,10 +729,9 @@ $("gasnote").hidden = !!ENDPOINT;
 $("device").value = store.get("device") || "";
 $("device").addEventListener("change", () => store.set("device", $("device").value));
 
-// 画面を消さない仕組み(使えない端末では、注意の文だけ)
-let wake = null, active = 0;
+// 画面を消さない仕組み(送っている間だけ。使えない端末では、上の帯の文だけ)
+let wake = null;
 async function keepAwake(on) {
-  $("keep").hidden = !on;
   if (!("wakeLock" in navigator)) return;
   try {
     if (on && !wake) wake = await navigator.wakeLock.request("screen");
@@ -625,55 +740,85 @@ async function keepAwake(on) {
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
-  if (active > 0) { if (batch && batch.sending) { wake = null; keepAwake(true); } }
+  if (batch && batch.running) { wake = null; keepAwake(true); }
   else if (view === "past") startPoll();  // ほかのアプリから戻ってきた: 確かめ直す(送っている最中は送るのを優先)
   else refresh();
 });
 
 // ---- 前に送った分 ------------------------------------------------------------
+const activeRs = new Set();  // このページで今送っている受付番号(控えは「途中」でも、止まったとは言わない)
+// 前に送った分の札(§3: 届きました・取り込み済み・止まりました・送れませんでした)と、その下に出す理由の文
+function pastTag(x) {
+  if (x.state === "received") return ["届きました", "green"];
+  if (x.state === "imported") return ["取り込み済み", "green"];
+  if (x.state === "quarantined") return ["確かめで止まりました", "red", LONG.quarantined];
+  if (x.state === "missing") return ["見つかりません", "red", LONG.missing];
+  if (x.stop === "refused" || x.state === "failed") return ["送れませんでした", "red", x.why ? endDot(x.why) : ""];
+  if (activeRs.has(x.r)) return ["送っています", "blue"];
+  if (x.stop === "cancel") return ["取り消しました", "gray", T_CANCEL];
+  // 「途中」のまま(このページで送っていない): 止まった。送り先をもらう前に止まったもの・送り先が無くなったものは続きからは送れない
+  return ["止まりました", "red", x.local || x.stop === "start" || x.stop === "gone" ? T_NET0 : ""];
+}
+const PAST_ORDER = ["届きました", "取り込み済み", "送っています", "取り消しました", "止まりました", "送れませんでした", "確かめで止まりました", "見つかりません"];
 function drawSummary() {
-  const list = ReceiveSend.receipts(store);
+  const list = myReceipts();
   if (!list.length) { $("past-sum").textContent = "まだありません。"; return; }
   const n = {};
-  for (const x of list) { const s = x.edited && x.state === "received" ? "received" : x.state; n[s] = (n[s] || 0) + 1; }
-  $("past-sum").textContent = `${list.length} 本 ／ ` + Object.keys(SHORT).filter((s) => n[s]).map((s) => `${SHORT[s]} ${n[s]}`).join(" ／ ");
+  for (const x of list) { const t = pastTag(x)[0]; n[t] = (n[t] || 0) + 1; }
+  $("past-sum").textContent = `${list.length} 本 ／ ` + PAST_ORDER.filter((s) => n[s]).map((s) => `${s} ${n[s]}`).join(" ／ ");
 }
+const delivered = (x) => x.state === "received" || x.state === "imported";
 function drawReceipts() {
   const box = $("rc");
   box.textContent = "";
-  const list = ReceiveSend.receipts(store).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+  const list = myReceipts().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+  $("clear-p").hidden = !list.length;
   if (!list.length) { box.appendChild(el("p", "note", "まだありません。")); return; }
-  // 同じもの(名前・大きさ・撮影時刻が同じ)を何度送ったか。古い順に 1 回目・2 回目と数える
+  // 同じもの(名前・大きさ・撮影時刻が同じ)を何度届けたか。古い順に 1 回目・2 回目と数える(届かなかったものは数えない)
   const key = (x) => [x.name, x.size, x.taken || ""].join("|");
   const all = {}, nth = new Map();
-  for (const x of list.slice().reverse()) { const k = key(x); all[k] = (all[k] || 0) + 1; nth.set(x, all[k]); }
+  for (const x of list.slice().reverse()) { if (!delivered(x)) continue; const k = key(x); all[k] = (all[k] || 0) + 1; nth.set(x, all[k]); }
   let day = "", ul = null;
   for (const x of list) {
     const d = x.at ? new Date(x.at) : null;
     const h = d ? dayHead(d) : "送った日の分からないもの";
     if (h !== day) { day = h; box.appendChild(el("h3", "", h)); ul = box.appendChild(el("ul", "rc")); }
     const li = el("li");
-    const l1 = el("div");
-    l1.appendChild(el("span", "t", (d ? hm(d) : "--:--") + " 送信"));
-    const what = [x.kind ? whatText(x.kind, x.dur, 0) : "", x.taken ? "撮影 " + shotAt(x.taken) : ""].filter(Boolean).join("　");
-    if (what) l1.appendChild(el("span", "", what));
-    const l2 = el("div");
-    l2.appendChild(el("span", "st " + x.state, label(x)));
-    l2.appendChild(el("span", "nm", " " + x.name + "（" + mb(x.size) + "）"));
-    li.append(l1, l2);
+    // 開始(送り始めた)と完了(届いた・止めたとこのスマホが知った)の時刻(2026-10-07 運用者の感想)。完了が別の日なら日付も付ける
+    // endBy: 送った直後には確かめられず、あとで状態の口で届いたと知った時刻(届いたのはそれより前。「までに」と出す。レビュー 指摘 5)
+    const e = x.end ? new Date(x.end) : x.endBy ? new Date(x.endBy) : null;
+    const fin = e && isFinite(e) ? "　完了 " + (d && dayHead(e) === dayHead(d) ? "" : `${md(e)} `) + hm(e) + (x.end ? "" : " までに") : "";
+    const [tag, color, why] = pastTag(x);
+    const l1 = el("div", "l1");
+    l1.append(el("span", "t", "開始 " + (d ? hm(d) : "--:--") + fin), el("span", "tag " + color, tag));
+    li.appendChild(l1);
+    const what = [x.kind ? kindText(x.kind, x.dur) : "", x.taken ? "撮影 " + shotAt(x.taken) : ""].filter(Boolean).join("　");
+    if (what) li.appendChild(el("div", "", what));
+    const l3 = el("div");
+    l3.appendChild(el("span", "nm", x.name + "（" + mb(x.size) + "）"));
+    if (delivered(x)) l3.appendChild(el("span", "orig", x.edited ? "加工した版" : "元のまま"));
+    li.appendChild(l3);
+    if (why) li.appendChild(el("div", "why", why));
     const k = key(x);
     if (nth.get(x) > 1) li.appendChild(el("div", "dup", `同じものを ${all[k]} 回送っています（これは ${nth.get(x)} 回目）`));
     ul.appendChild(li);
   }
 }
+// この一覧を消す(この招待の分だけ。今送っているものは残す。続きから送るための控え(送り先)は消さない。2026-10-09 見本の決裁 §4-2 (a))
+$("clear").addEventListener("click", () => {
+  if (!confirm("この一覧を消しますか。このスマホの記録だけを消します。届いたものは消えません。")) return;
+  store.set("receipts", JSON.stringify(ReceiveSend.receipts(store).filter((x) => !mine(x) || activeRs.has(x.r))));
+  drawSummary(); drawReceipts();
+});
 // 状態の口の答えは、聞いた後に finish が台帳を書くと古くなる。「途中」へは戻さない(届いた控えが「途中」に戻って、
 // 選び直すと丸ごと送り直すことになるので。レビュー docs/reviews/2026-10-07-受け口のページの3画面.md 指摘 3)
 let checking = null, again = false;
 async function refresh() {
   if (checking) { again = true; return checking; }  // 進んでいる問い合わせの後に、もう 1 回聞く(その間に変わった控えのため)
   checking = (async () => {
-    const list = ReceiveSend.receipts(store);
-    const ask = list.filter((x) => x.state !== "imported").map((x) => x.r).slice(0, 100);
+    const list = myReceipts();
+    // 送り先をもらう前に止まったもの(local)には受付番号が無いので聞かない
+    const ask = list.filter((x) => !x.local && x.state !== "imported").map((x) => x.r).slice(0, 100);
     let msg = "";
     if (ask.length && K) {
       try {
@@ -682,7 +827,9 @@ async function refresh() {
         for (const v of got) {
           const cur = now.find((x) => x.r === v.r) || list.find((x) => x.r === v.r) || {};
           if (v.state === "sending" && cur.state && cur.state !== "sending") continue;
-          ReceiveSend.saveReceipt(store, Object.assign({}, cur, { state: v.state }));
+          // 「途中」だった控えが届いた・止めたに変わった: 完了の時刻は分からないので、知った時刻を「までに」として残す
+          const by = cur.state === "sending" && v.state !== "sending" && !cur.end && !cur.endBy ? { endBy: new Date().toISOString() } : {};
+          ReceiveSend.saveReceipt(store, Object.assign({}, cur, { state: v.state }, by));
         }
         msg = hm(new Date()) + " の状態";
       } catch (e) { msg = "確かめられませんでした（" + hm(new Date()) + "）。このスマホの控えを出しています"; }  // 見られなくても、手元の控えはそのまま出す
@@ -715,116 +862,247 @@ function drawChecked() {
 $("refresh").addEventListener("click", () => (view === "past" ? startPoll() : refresh()));
 
 // ---- 今回の分 ----------------------------------------------------------------
-// batch: 今回選んだ分。送っている間に選び足した分は後ろに並ぶ。送り終えて選ぶ画面に戻ると片付ける
+// batch: 今回選んだ分。送り終えるまでに選んだ分(「続けて選ぶ」・送っている間に選んだ分)は同じ回に足す。送り終えた後に選ぶと新しい回。
+// 箱の状態 c.st(§1 の表の番号): pick 1・3 / ask 2 / skip 4 / no 5 / queue 6 / send 7 / ok 8・9 / cancel 10 / stop 11 / ng 12
+const TAG = { pick: ["まだ送っていません", "gray"], ask: ["確かめてください", "yellow"], skip: ["送りません", "gray"], no: ["送れません", "gray"],
+              queue: ["順番待ち", "gray"], send: ["送っています", "blue"], ok: ["届きました", "green"], cancel: ["取り消しました", "gray"],
+              stop: ["止まりました", "red"], ng: ["送れませんでした", "red"] };
+const NOT_ARRIVED = ["skip", "stop", "ng", "cancel"];  // 届いていない(送れない種類 no は数えない)
 let batch = null;
-function clearDone() {
+let redoFrom = null;  // 最後に「選び直す」を押した箱(開いた選ぶ画面はこの箱のためのもの)
+function dropBatch() {
   if (!batch) return;
-  for (const c of batch.cards) if (c.url) URL.revokeObjectURL(c.url);
+  for (const c of batch.cards) { c.gone = true; if (c.url) URL.revokeObjectURL(c.url); }
   batch = null;
-  $("files").textContent = ""; $("done").hidden = $("sum").hidden = true; $("next").hidden = true; $("ask").hidden = true;
+  $("files").textContent = "";
+  $("to-now-p").hidden = true;
   drawBusy();
 }
-// 見出しは結果で替える(何も届いていないのに「送り終えました」と出さない。2026-10-07 運用者の感想)
+const count = () => { const n = {}; for (const c of batch.cards) n[c.st] = (n[c.st] || 0) + 1; return n; };
+const notArrived = () => batch.cards.filter((c) => NOT_ARRIVED.includes(c.st)).length;
+// 送り終えた回: 一度は送るボタンを押し、送る・確かめる・送り待ちのものが残っていない
+const finished = () => !!(batch && batch.sendAt && !batch.running && !batch.cards.some((c) => ["pick", "ask", "queue", "send"].includes(c.st)));
+// 見出し(§2): 時刻は入れず、見出しの下に並べる
 function nowTitle() {
-  if (batch.asking) return "送る前に確かめてください";
-  if (active) return "送っています";
-  const at = "（" + hm(new Date(batch.end || Date.now())) + "）";
-  if (!batch.n) return batch.bad ? "届いていません" + at : "送っていません";
-  return (batch.bad || batch.held ? "一部を送りました" : "送り終えました") + at;
+  const n = count();
+  if (n.ask) return "送る前に確かめてください";
+  if (batch.running) return `送っています（${n.ok || 0} / ${batch.cards.filter((c) => c.go).length} 本）`;
+  if (n.pick || !batch.sendAt) return "まだ送っていません";
+  if (!n.ok) return "届いていません";
+  return notArrived() ? "一部を送りました" : "送り終えました";
+}
+function nowSub() {
+  const n = count();
+  if (!batch.running && (n.pick || n.ask || !batch.sendAt)) {
+    const s = batch.start, bytes = batch.cards.reduce((a, c) => a + c.f.size, 0);
+    return `${md(s)} ${hm(s)} に選んだ ${batch.cards.length} 本・合計 ${mb(bytes)}`;
+  }
+  const s = "開始 " + hm(new Date(batch.sendAt));
+  if (batch.running) return s;
+  return s + (n.ok ? "　完了 " : "　止まった ") + hm(new Date(batch.endAt));
 }
 function drawNow() {
   if (!batch) return;
-  const n = batch.cards.length;
-  const left = batch.cards.filter((c) => !c.over).length;
-  $("now-title").textContent = nowTitle();
-  $("now-sub").textContent = `${dayHead(batch.start)} ${hm(batch.start)} に選んだ ${n} 本` + (active && left ? `（残り ${left} 本）` : "");
+  const n = count();
+  $("now-title").textContent = $("now-sum").textContent = nowTitle();
+  $("now-sub").textContent = nowSub();
+  $("to-now-p").hidden = false;
+  // 送るボタン: 送る分(まだ送っていない・2 択を待つ)だけを数える。送れない種類(§1 の 5)は数えない。2 択が残っている間は押せない
+  const toSend = batch.cards.filter((c) => c.st === "pick" || c.st === "ask");
+  const btn = $("send");
+  btn.hidden = !toSend.length;
+  btn.textContent = `${toSend.length} 本を送る（${mb(toSend.reduce((a, c) => a + c.f.size, 0))}）`;
+  btn.disabled = !!n.ask || toSend.some((c) => c.reading);
+  $("send-why").hidden = !n.ask;
+  $("howto-ask").hidden = !n.ask;
+  $("howto-redo").hidden = !!n.ask || !n.skip;
+  const over = finished();
+  $("sum").hidden = !over;
+  if (over) {
+    const k = notArrived();
+    $("done").className = k ? "warn" : "good";
+    $("done").textContent = k ? `${k} 本は届いていません。届いていないものは消さないでください。` : "これで終わりです。ページを閉じてかまいません。";
+  }
+  // 一番下: 送る前は「続けて選ぶ」、送り終えたら「続けて選ぶ」「前に送った分を見る」、送っている間は出さない。
+  // 送り終えても送っていない箱(「選び直す」を選んだもの)が残るなら「続けて選ぶ」は出さない(選ぶと新しい回になり、その箱が消えるため。
+  // 2026-10-07 決裁 §8 (a)。選び直すのは箱ごとの「この動画を選び直す」。2026-10-09 レビュー 指摘 1)
+  $("next").hidden = !!batch.running;
+  $("now-past").hidden = !over;
+  $("again").hidden = over && batch.cards.some((c) => c.st === "skip");
   drawBusy();
 }
 function drawBusy() {
-  const b = $("busy");
-  if (!batch || view === "now" || (!active && view === "pick")) { b.hidden = true; return; }  // 送り終えて選ぶ画面に戻ったら片付いている
-  const n = batch.cards.length, over = batch.cards.filter((c) => c.over).length;
-  b.textContent = (active && !batch.asking ? `送っています ${over} / ${n} 本` : nowTitle()) + " — 押すと今回の分 ›";
-  b.hidden = false;
+  const on = !!(batch && batch.running);
+  $("busy").hidden = !on;
+  // 2 文目は送る合計が 1 GB を超えるときだけ(§2)
+  $("busy2").hidden = !on || batch.cards.filter((c) => c.go).reduce((a, c) => a + c.f.size, 0) <= 1e9;
 }
 
+// 小さな絵: 選んだファイルそのものをこのスマホの中で縮めて出すだけ(どこにも送らない)。動画は 1 回に 12 本まで。
+// iPhone の Safari は blob の <video> に最初のコマを描かないので、読み込んだら音なしで一瞬だけ再生して止め、canvas に写し取って
+// <img> にする(2026-10-09。実機は要確認)。できなければ「動画」の字。重くならないように 1 本ずつ順に
+let thumbs = Promise.resolve();
+function videoThumb(c) {
+  thumbs = thumbs.then(() => new Promise((done) => {
+    const th = c.th;
+    if (c.gone) return done();
+    const v = el("video");
+    v.muted = true; v.defaultMuted = true; v.playsInline = true; v.preload = "auto";
+    v.setAttribute("muted", ""); v.setAttribute("playsinline", "");
+    let over = false;
+    const end = (img) => {
+      if (over) return;
+      over = true; clearTimeout(timer);
+      try { v.pause(); } catch (e) {}
+      v.removeAttribute("src"); try { v.load(); } catch (e) {}
+      v.remove();
+      if (c.url) { URL.revokeObjectURL(c.url); c.url = null; }
+      th.textContent = "";
+      if (img) { const im = el("img"); im.alt = ""; im.src = img; th.appendChild(im); th.classList.add("v"); }
+      else th.textContent = "動画";
+      done();
+    };
+    const grab = () => {
+      try {
+        const w = v.videoWidth, h = v.videoHeight;
+        if (!w || !h) return end(null);
+        const S = 128, s = S / Math.min(w, h), cv = el("canvas");
+        cv.width = cv.height = S;
+        cv.getContext("2d").drawImage(v, (S - w * s) / 2, (S - h * s) / 2, w * s, h * s);
+        end(cv.toDataURL("image/jpeg", 0.75));
+      } catch (e) { end(null); }
+    };
+    const timer = setTimeout(() => end(null), 8000);
+    v.addEventListener("loadedmetadata", () => { if (isFinite(v.duration) && v.duration > 0) { c.dur = v.duration; drawWhat(c); } });
+    v.addEventListener("error", () => end(null));
+    v.addEventListener("loadeddata", () => {
+      const shot = () => { try { v.pause(); } catch (e) {} grab(); };
+      const onFrame = () => ("requestVideoFrameCallback" in v ? v.requestVideoFrameCallback(() => shot()) : v.addEventListener("timeupdate", shot, { once: true }));
+      let p;
+      try { p = v.play(); } catch (e) { return end(null); }
+      if (p && p.then) p.then(onFrame, () => end(null)); else onFrame();
+    }, { once: true });
+    th.appendChild(v);  // 画面の中に置く(置かないと読み込まない端末がある。推測)
+    v.src = c.url;
+  }));
+}
+function drawWhat(c) {
+  c.what.textContent = "";
+  c.what.append(el("span", "nw", kindText(c.kind, c.dur)), "・", el("span", "nw", mb(c.f.size)));
+}
 function card(f) {
   const box = el("div", "file");
   const th = el("div", "thumb");
   const body = el("div", "fbody");
   const video = /^video\//.test(f.type) || /\.(mov|mp4|m4v|3gp)$/i.test(f.name);
-  const c = { f, box, video, kind: video ? "動画" : "写真", dur: 0, over: false };
-  // 小さな絵: 選んだファイルそのものをこのスマホの中で縮めて出すだけ(どこにも送らない)
+  const c = { f, box, th, video, kind: video ? "動画" : "写真", dur: 0, st: "pick", reading: true };
   try {
     c.url = URL.createObjectURL(f);
-    if (video && batch.videos++ >= 12) th.textContent = "動画";
-    else if (video) {
-      const v = el("video"); v.muted = true; v.playsInline = true; v.preload = "metadata"; v.setAttribute("playsinline", "");
-      c.durReady = new Promise((ok) => { v.addEventListener("loadedmetadata", () => { c.dur = v.duration; ok(); }); v.addEventListener("error", ok); setTimeout(ok, 3000); });
-      v.addEventListener("error", () => { th.textContent = "動画"; });
-      v.src = c.url + "#t=0.1";
-      th.appendChild(v);
-    } else {
+    if (video && batch.videos++ >= 12) { th.textContent = "動画"; URL.revokeObjectURL(c.url); c.url = null; }
+    else if (video) videoThumb(c);
+    else {
       const im = el("img"); im.alt = ""; im.decoding = "async"; im.loading = "lazy";
       im.addEventListener("error", () => { im.remove(); th.textContent = "写真"; });
       im.src = c.url;
       th.appendChild(im);
     }
   } catch (e) { th.textContent = c.kind; }
-  c.what = el("div", "what", whatText(c.kind, 0, f.size));
+  c.what = el("div", "what");
+  c.tag = el("span", "tag");
+  const head = el("div", "fhead"); head.append(c.what, c.tag);
   c.when = el("div", "note", "撮影時刻を読んでいます");
   c.name = el("div", "name", f.name);
-  const bar = el("div", "bar"); c.fill = el("i"); bar.appendChild(c.fill); bar.hidden = true; c.bar = bar;
-  c.msg = el("div", "msg", "順番を待っています");
-  body.append(c.what, c.when, c.name, bar, c.msg);
+  c.bar = el("div", "bar"); c.fill = el("i"); c.bar.appendChild(c.fill);
+  c.msg = el("div", "msg");
+  c.extra = el("div");
+  body.append(head, c.when, c.name, c.bar, c.msg, c.extra);
   box.append(th, body);
+  drawWhat(c);
   return c;
 }
-
-// 「選び直す」を押した箱の文。押すとその場で選ぶ画面が開き、選べばこの箱は消えて選んだものが足される(§7-1 (a))。
-let redoFrom = null;  // 最後に「選び直す」を押した箱(開いた選ぶ画面はこの箱のためのもの)
-// 選ぶ画面を閉じてしまったときのために、その箱に「この動画を選び直す」を置く(箱ごと。どの箱のための選ぶ画面かを取り違えない。
-// 2026-10-07 決裁 §8 (a)。それまでの「まとめの下の大きなボタン」は、ほかの送っていない箱まで片付けていた)
-const REDO_MSG = "送っていません。元の動画を選び直すときは、下のボタンを押してください。";
-function markRedo(c) {
-  c.msg.textContent = REDO_MSG;
-  if (c.again) return;
-  c.again = el("button", "main redo-one", "この動画を選び直す");
-  c.again.type = "button";
-  c.again.addEventListener("click", () => { redoFrom = c; $("pick-r").click(); });  // 押した操作の中で開く
-  c.msg.after(c.again);
+// 受け口が受けない種類の箱の文(§1 の 5。受ける種類は send.js の EXTS = Code.gs の EXTS)
+function notAccepted(name) {
+  const ext = ReceiveSend.extOf(name).toUpperCase();
+  return (ext === "PNG" ? "PNG の画像（スクリーンショットなど）は" : ext ? ext + " のファイルは" : "この種類のファイルは") +
+    "受け取っていません。送れるのは写真（JPEG・HEIC）と動画（MOV・MP4）です。";
 }
-// 元の動画ではないものは送る前に止めて、本人に選んでもらう(選び画面が作り直したものか、本人が編集したものかは機械で分けられない)
-// 上の知らせ: 2 択を待っている箱を、今回の分に並んだ箱すべてと比べて言う。待つ箱・並ぶ箱が変わるたびに組み直す
-// (「1 本」「赤い箱」では何のことか分からない。2026-10-07 運用者の感想。選び足したときに古い文が残らないように、同日レビュー)
-function drawAsk() {
-  const w = batch ? batch.cards.filter((c) => c.waiting) : [];
-  $("ask").hidden = $("ask-howto").hidden = !w.length;
-  if (!w.length) return;
-  const all = w.length === batch.cards.length, many = w.length > 1;
-  $("ask").textContent = (all ? (many ? `下の ${w.length} 本の動画は` : "下の動画は") : `下のうち ${w.length} 本の動画は`) +
-    "、元のままではありません。" + (many ? "それぞれ" : all ? "" : "その動画の") + "「選び直す」か「このまま送る」を押してください" +
-    (all ? "（押すまで送り始めません）。" : "（押すまで、その動画は送りません）。");
+const pctText = (shown, size) => `${Math.floor((shown / size) * 100)}%（${mb(shown)} / ${mb(size)}）`;
+function act(c, text, fn) {
+  const row = el("div", "acts"), b = el("button", "sm", text);
+  b.type = "button";
+  b.addEventListener("click", fn);
+  row.appendChild(b);
+  c.extra.appendChild(row);
 }
-function askChoice(c) {
-  c.waiting = true; drawAsk(); drawNow();
-  c.box.classList.add("held");
-  c.msg.textContent = "元のままの動画ではないため、元の画質で届きません。";  // 誰がしたかを言わない(§7-2 (a))
-  const row = el("p", "choice");
-  const redo = el("button", "redo", "選び直す（おすすめ）");
-  const go = el("button", "go", "このまま送る（切り取った動画など）");
-  redo.type = go.type = "button";
-  row.append(redo, go);
-  c.msg.after(row);
-  return new Promise((ok) => {
-    redo.addEventListener("click", () => {
-      row.remove(); c.waiting = false; c.choice = "redo"; c.box.classList.replace("held", "skip"); markRedo(c); drawAsk();
-      redoFrom = c;  // 開いた選ぶ画面で選んだら、この箱だけを入れ替える
-      $("pick-r").click();  // 押した操作の中で開くので、iPhone の Safari でも開く見込み(実機は要確認)
-      ok("redo");
-    });
-    go.addEventListener("click", () => { row.remove(); c.box.classList.remove("held"); c.waiting = false; drawAsk(); ok("send"); });
-  });
+// 箱を今の状態(c.st)で描き直す: 札・文 1 つ・ボタン(§1 の表)
+function render(c) {
+  const [t, color] = TAG[c.st];
+  c.tag.textContent = t; c.tag.className = "tag " + color;
+  c.box.dataset.st = c.st;
+  c.bar.hidden = c.st !== "send";
+  c.msg.textContent = ""; c.extra.textContent = "";
+  switch (c.st) {
+    case "pick":
+      if (c.edited && c.choice === "send") c.msg.textContent = "加工した版として送ります。";
+      act(c, "外す", () => removeCard(c));
+      break;
+    case "ask": {  // 元の動画ではないものは送る前に止めて、本人に選んでもらう(選び画面が作り直したものか、本人が編集したものかは機械で分けられない)
+      c.msg.textContent = "元のままの動画ではないため、元の画質で届きません。";  // 誰がしたかを言わない(§7-2 (a))
+      const row = el("p", "choice");
+      const redo = el("button", "redo", "選び直す（おすすめ）");
+      const go = el("button", "go", "このまま送る（切り取った動画など）");
+      redo.type = go.type = "button";
+      redo.addEventListener("click", () => {
+        c.choice = "redo"; c.st = "skip"; render(c); drawNow();
+        redoFrom = c;  // 開いた選ぶ画面で選んだら、この箱だけを入れ替える(§7-1 (a))
+        $("pick-r").click();  // 押した操作の中で開くので、iPhone の Safari でも開く見込み(実機は要確認)
+      });
+      go.addEventListener("click", () => { c.choice = "send"; c.st = "pick"; render(c); drawNow(); });
+      row.append(redo, go);
+      c.extra.appendChild(row);
+      break;
+    }
+    case "skip": {  // 選ぶ画面を閉じてしまったときのために、その箱に「この動画を選び直す」(箱ごと。§8 (a))
+      c.msg.textContent = "元の動画を選び直すときは、下のボタンを押してください。";
+      const b = el("button", "main redo-one", "この動画を選び直す");
+      b.type = "button";
+      b.addEventListener("click", () => { redoFrom = c; $("pick-r").click(); });  // 押した操作の中で開く
+      c.extra.appendChild(b);
+      break;
+    }
+    case "no": c.msg.textContent = notAccepted(c.f.name); act(c, "外す", () => removeCard(c)); break;
+    case "queue": act(c, "取り消す", () => cancelCard(c)); break;
+    case "send": c.msg.textContent = c.pct || pctText(0, c.f.size); if (c.ctl && !c.finishing) act(c, "取り消す", () => cancelCard(c)); break;
+    case "ok":  // 元のまま／加工した版を同じ形で言い、「スマホから消してかまいません」はどちらにも付ける(§1 の対比)
+      c.msg.append(el("b", "", c.edited ? "加工した版" : "元のまま"),
+                   c.edited ? "が届きました。スマホから消してかまいません。" : "届きました。スマホから消してかまいません。");
+      break;
+    case "cancel": c.msg.textContent = T_CANCEL; break;
+    case "stop": c.msg.textContent = c.early ? T_NET0 : T_NET; break;
+    case "ng": c.msg.textContent = c.why || ""; break;
+  }
+  c.msg.hidden = !c.msg.textContent;
+}
+function progress(c, st) {
+  if (c.st !== "send") return;
+  c.fill.style.width = Math.floor((st.shown / st.size) * 100) + "%";
+  c.pct = pctText(st.shown, st.size);
+  c.msg.textContent = c.pct; c.msg.hidden = false;
+  if (st.sent >= st.size && !c.finishing) { c.finishing = true; c.extra.textContent = ""; }  // 送り終えて確かめている間は取り消さない
+}
+// 送る前: 外す(箱ごと消す)
+function removeCard(c) {
+  c.gone = true; c.box.remove(); if (c.url) { URL.revokeObjectURL(c.url); c.url = null; }
+  batch.cards = batch.cards.filter((x) => x !== c);
+  if (!batch.cards.length) { dropBatch(); show("pick", false); return; }
+  drawNow();
+}
+// 送っている間: 取り消す(順番待ちは送らない。送っているものは、その片の送信を止めて次の片を送らない。控えは消さないので、
+// もう一度選べば続きから送る。2026-10-08 ボール 28 §4-2 (a)。確かめの一言を出す)
+function cancelCard(c) {
+  if (!confirm(`この${c.kind}の送信をやめますか`)) return;  // 感想 8 点 §4-2 (a) の文
+  if (c.st === "queue") { c.st = "cancel"; render(c); drawNow(); }
+  else if (c.st === "send" && c.ctl && !c.finishing) { c.ctl.abort(); c.extra.textContent = ""; }
 }
 
 async function onPick(ev) {
@@ -833,103 +1111,102 @@ async function onPick(ev) {
   if (!files.length || !K) return;
   const repick = ev.target.id === "pick-r" && batch && redoFrom && batch.cards.includes(redoFrom) ? redoFrom : null;
   redoFrom = null;
-  if (!active && !repick) {  // 新しい回: 前の回の表示を片付ける(その場で選び直したときは、今の回に続ける)
-    clearDone();
-    batch = { start: new Date(), cards: [], asking: 0, sending: 0, videos: 0, n: 0, bytes: 0, bad: 0, held: 0, ed: 0, end: 0 };
+  // 送り終えていない回なら、その回に箱を足す(「続けて選ぶ」)。送り終えた回の後に選んだら新しい回(その場で選び直したときは今の回に続ける)
+  if (!repick && (!batch || finished())) {
+    dropBatch();
+    batch = { start: new Date(), cards: [], videos: 0, sendAt: 0, endAt: 0, running: false };
   }
-  if (repick) {  // 「選び直す」から選んだ: その箱を、選んだものに入れ替える
-    const c = repick;
-    c.gone = true; c.box.remove(); if (c.url) URL.revokeObjectURL(c.url); if (c.counted) batch.held--;
-    batch.cards = batch.cards.filter((x) => x !== c);
+  const all = files.map((f) => card(f));
+  if (repick) {  // 「選び直す」から選んだ: その箱を、選んだものに入れ替える(同じ場所に)
+    const i = batch.cards.indexOf(repick);
+    for (const c of all) $("files").insertBefore(c.box, repick.box);
+    batch.cards.splice(i, 1, ...all);
+    repick.gone = true; repick.box.remove(); if (repick.url) URL.revokeObjectURL(repick.url);
+  } else for (const c of all) { batch.cards.push(c); $("files").appendChild(c.box); }
+  // 受け口が受けない種類(PNG の画面の写しなど)は、選んだその場で理由を言い、送らない(受け口に頼まない)
+  for (const c of all) {
+    if (!ReceiveSend.accepted(c.f.name)) { c.st = "no"; c.reading = false; c.when.hidden = true; }
+    render(c);
   }
-  const mine = files.map((f) => card(f));
-  for (const c of mine) { batch.cards.push(c); $("files").appendChild(c.box); }
-  drawAsk();  // 2 択を待っている間に選び足したときも、上の知らせを今の箱の並びに合わせる
-  $("done").hidden = $("sum").hidden = true; $("next").hidden = true;
-  active++;  // 「画面を消さない」は送り始めてから(2 択を待つ間は出さない)
   show("now", view !== "now");
   drawNow();
-  let sending = false;
-  try {
-    // 先に全部の印を読み、元でない動画があれば送り始める前にまとめて聞く(送っている途中で止まって待たないように)
-    for (const c of mine) {
-      let meta = {};
-      try { meta = await Stage0Meta.read(c.f); } catch (e) { meta = {}; }
-      if (c.durReady) await c.durReady;
-      c.meta = meta;
-      c.taken = meta.taken || meta.mvhd || "";
-      c.what.textContent = whatText(c.kind, c.dur, c.f.size);
-      c.when.textContent = c.taken ? "撮影 " + shotAt(c.taken) : "撮影時刻なし";  // 機種名は出さない(本人は絵と時刻で見分ける。指摘 16)
-      if (!c.taken) c.msg.textContent = "撮影時刻が読めません（このまま送ります）。";
-      c.edited = ReceiveSend.remadeVideo(meta, c.f);  // 元の動画ではない(選び画面の「自動」が作り直した・編集した)。§7 (a-1)・§10 (甲')
-    }
-    const asks = mine.filter((c) => c.edited);
-    if (asks.length) {
-      batch.asking++;
-      const ans = await Promise.all(asks.map((c) => askChoice(c)));
-      asks.forEach((c, i) => { c.choice = ans[i]; });
-      batch.asking--; drawAsk(); drawNow();
-    }
-    for (const c of mine) {
-      if (c.choice === "redo" && !c.gone) {
-        batch.held++; c.counted = true; c.over = true;
-        drawNow();
-      }
-    }
-    if (mine.some((c) => c.choice !== "redo")) { batch.sending++; sending = true; keepAwake(true); }
-    for (const c of mine) {
-      if (c.choice === "redo") continue;
-      c.bar.hidden = false;
-      try {
-        const v = await ReceiveSend.sendFile({
-          file: c.f, meta: c.meta, k: K, device: $("device").value, origin: location.origin, call, fetchFn: fetch.bind(window), store,
-          edited: c.edited, info: { kind: c.kind, dur: c.dur || undefined, taken: c.taken || undefined },
-          update: (st) => { c.fill.style.width = Math.floor((st.sent / st.size) * 100) + "%"; c.msg.textContent = st.msg + "（" + mb(st.sent) + " / " + mb(st.size) + "）"; },
-        });
-        c.msg.textContent = label(Object.assign({ edited: c.edited }, v));
-        if (v.state === "received") { batch.n++; batch.bytes += c.f.size; if (c.edited) batch.ed++; c.box.classList.add("ok"); c.bar.hidden = true; }
-        else { batch.bad++; c.box.classList.add("ng"); }
-      } catch (e) {
-        batch.bad++; c.box.classList.add("ng");
-        c.msg.textContent = "止まりました: " + (e && e.message || e) + "。少し待ってから同じ写真・動画をもう一度選ぶと、続きから送ります。";
-      }
-      c.over = true;
-      drawNow();
-    }
-  } finally {
-    active--;
-    if (sending) batch.sending--;
-    if (!batch.sending) keepAwake(false);
+  // 印を読む(読み終えるまで送るボタンは押せない)。元の動画ではないものは送る前に 2 択(§7 (a-1)・§10 (甲'))
+  for (const c of all) {
+    if (c.st === "no") continue;
+    let meta = {};
+    try { meta = await Stage0Meta.read(c.f); } catch (e) { meta = {}; }
+    c.meta = meta;
+    c.taken = meta.taken || meta.mvhd || "";
+    c.when.textContent = c.taken ? "撮影 " + shotAt(c.taken) : "撮影時刻なし";  // 機種名は出さない(本人は絵と時刻で見分ける。指摘 16)
+    c.edited = ReceiveSend.remadeVideo(meta, c.f);
+    c.reading = false;
+    if (c.gone) continue;
+    if (c.edited && c.st === "pick") c.st = "ask";
+    render(c);
+    drawNow();
   }
-  if (active) return;  // 選び足した分がまだ送っている: まとめはそれが終わってから
-  batch.end = Date.now();
-  const { n, bytes, bad, held, ed } = batch;
-  $("done").hidden = $("sum").hidden = false;
-  $("done").textContent = (n ? `${n} 本・${mb(bytes)} 届きました${ed ? `（うち ${ed} 本は加工した版）` : ""}。` : "") +
-    (bad ? `${bad} 本は届いていません（上の表示を見てください。届いていないものは消さないでください）。` : "") +
-    (held ? `${held} 本は送っていません（上の表示を見てください。送っていないものは消さないでください）。` : "") +
-    (n ? "届いたものは、スマホから消してかまいません。" : "") +  // 何も届かなかったときは「届きました」の句を出さない
-    (n && !bad && !held ? "これで終わりです。ページを閉じてかまいません。" : "");  // 終わりの合図(指摘 11)
-  $("sum").className = bad || held ? "warn" : "good";
-  $("again").className = bad || held ? "main" : "sm";  // 全部届いたら終わりが主。続けて選ぶは控えめに
-  $("redo-steps").hidden = !held; $("again").hidden = !!held;  // 送らなかったものがあれば、まとめの中に道順(選び直すのは箱ごとのボタン)
-  $("next").hidden = false;
-  drawNow();
-  refresh();  // 確かめの答えが届かず「止まりました」になったものも、受け口の台帳で状態を取り直す
 }
 $("pick-a").addEventListener("change", onPick);
 $("pick-b").addEventListener("change", onPick);
 $("pick-r").addEventListener("change", onPick);
+
+// 送る: 送る分を順番待ちにして、1 本ずつ送る。送っている間に押したら(足した分)、順番待ちの後ろに並ぶ
+$("send").addEventListener("click", () => {
+  if (!batch || batch.cards.some((c) => c.st === "ask" || (c.st === "pick" && c.reading))) return;
+  const go = batch.cards.filter((c) => c.st === "pick");
+  if (!go.length) return;
+  for (const c of go) { c.st = "queue"; c.go = true; render(c); }
+  if (!batch.running) runQueue(batch);
+  drawNow();
+});
+async function runQueue(b) {
+  b.running = true;
+  if (!b.sendAt) b.sendAt = Date.now();
+  keepAwake(true);
+  drawNow();
+  try {
+    for (;;) {
+      const c = b.cards.find((x) => x.st === "queue");
+      if (!c) break;
+      c.st = "send"; c.pct = ""; c.finishing = false;
+      c.ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      render(c); drawNow();
+      try {
+        const v = await ReceiveSend.sendFile({
+          file: c.f, meta: c.meta, k: K, device: $("device").value, origin: location.origin, call, fetchFn: sendPut, store,
+          edited: c.edited, info: { kind: c.kind, dur: c.dur || undefined, taken: c.taken || undefined },
+          signal: c.ctl ? c.ctl.signal : undefined,
+          started: (r) => { c.r = r; activeRs.add(r); },
+          update: (st) => progress(c, st),  // 片の途中の進み(st.shown)で出す
+        });
+        if (v.state === "received") c.st = "ok";
+        else if (v.state === "sending") c.st = "stop";  // 確かめが最後まで「途中」: 選び直すと確かめだけをやり直す
+        else { c.st = "ng"; c.why = LONG[v.state] || ""; }
+      } catch (e) {
+        if (e && e.stage === "cancel") c.st = "cancel";
+        else if (e && e.receiver) { c.st = "ng"; c.why = endDot(e.message); }  // 受け口が決まった文で断った(§1 の 12)
+        else { c.st = "stop"; c.early = !c.r || e.stage === "gone"; }       // 英語の文は出さない(§1 の 11)
+      }
+      if (c.r) activeRs.delete(c.r);
+      render(c); drawNow();
+    }
+  } finally {
+    b.running = false; b.endAt = Date.now();
+    keepAwake(false);
+  }
+  drawNow();
+  refresh();  // 確かめの答えが届かず止まったものも、受け口の台帳で状態を取り直す
+}
 
 // 開いたとき(画面の部品と変数がすべて揃ってから)
 onHash((hash) => {
   const m = /(?:^|&)k=([A-Za-z0-9._-]+)/.exec(hash);
   const inv = m && ReceiveSend.decodeInvite(m[1]);
   if (!inv) { $("who").textContent = ""; $("nokey").hidden = false; return; }
-  K = m[1];
+  K = m[1]; INV_ID = String(inv.id || "");
   const exp = new Date(inv.exp * 1000);
   // 案件名の頭の日付(20261010_)は仲間には意味が無いので出さない。期限は何の期限かを言う(指摘 5)
-  $("who").textContent = `${inv.who} さん用 ／ ${String(inv.case).replace(/^\d{8}_/, "")} ／ 送れるのは ${exp.getMonth() + 1}月${exp.getDate()}日まで`;
+  $("who").textContent = `${inv.who} さん用 ／ ${String(inv.case).replace(/^\d{8}_/, "")} ／ 送れるのは ${md(exp)}まで`;
   if (Date.now() > inv.exp * 1000) { $("nokey").hidden = false; $("nokey").textContent = "このリンクの期限が過ぎました。リンクを送ってくれた人に、新しいリンクをもらってください。"; }
   $("app").hidden = false;
   show(/(?:^|&)v=past/.test(hash) ? "past" : "pick", false);  // 開き直したときは選ぶ画面から(今回の分は開き直すと残らない)
