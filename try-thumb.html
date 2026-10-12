@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- どこにも送らない: 通信はすべて断る(選んだ動画は blob: でこのスマホの中だけで読む) -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob:">
+<title>動画の絵の試し</title>
+<!-- 受け口のページ(#282)の動画の小さな絵が iPhone で出ない件の試しのページ(2026-10-13、docs/questions/2026-10-13-受け口のページの操作性.md §4・決裁 4 (a))。
+     選んだ動画 1 本に 4 つの方法を当て、絵が出たか・何秒かかったか・どの出来事が起きたかを出す。受け口の仕組み(Code.gs)とはつながない。
+     1. 少し先へ飛ばし、飛び終えたら写し取る(再生しない)
+     2. #t=0.001 を付けた <video> を画面に置くだけ(写し取りも試す)
+     3. ボタンを押したその中で一瞬再生して写し取る
+     4. 動画の中身(moov)から最初の鍵のコマを取り出し、WebCodecs の VideoDecoder で解いて写し取る(再生も指の操作も要らない) -->
+<style>
+:root { --bg:#f6f7f9; --surface:#fff; --surface-alt:#f0f2f5; --border:#d9dee5; --text:#1c2430; --muted:#64748b;
+  --accent:#2563eb; --accent-contrast:#fff; --ok:#15803d; --bad:#b91c1c; --radius:10px; }
+@media (prefers-color-scheme: dark) { :root { --bg:#11151b; --surface:#1a2029; --surface-alt:#232b36; --border:#334155;
+  --text:#e5e7eb; --muted:#94a3b8; --accent:#60a5fa; --accent-contrast:#0b1220; --ok:#4ade80; --bad:#f87171; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; }
+main { max-width:640px; margin:0 auto; padding:16px; }
+h1 { font-size:20px; margin:0 0 6px; }
+section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; margin:0 0 12px; }
+.note { color:var(--muted); font-size:14px; }
+.pick { display:block; text-align:center; background:var(--accent); color:var(--accent-contrast); border-radius:var(--radius);
+  padding:14px; font-size:18px; font-weight:600; cursor:pointer; }
+.pick input { display:none; }
+button { font:inherit; min-height:44px; border-radius:8px; padding:8px 14px; border:1px solid var(--border); background:var(--surface-alt); color:var(--text); }
+button.pri { background:var(--accent); color:var(--accent-contrast); border:0; font-weight:600; }
+.m { display:flex; gap:12px; align-items:flex-start; }
+.m .pic { flex:none; width:96px; height:96px; border-radius:8px; background:var(--surface-alt); overflow:hidden; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px; }
+.m .pic img, .m .pic video { width:100%; height:100%; object-fit:cover; display:block; }
+.m .body { flex:1; min-width:0; }
+.m h2 { font-size:16px; margin:0; }
+.res { font-weight:700; }
+.res.ok { color:var(--ok); }
+.res.bad { color:var(--bad); }
+.log { font:12px/1.5 ui-monospace,Menlo,monospace; color:var(--muted); word-break:break-all; white-space:pre-wrap; margin:4px 0 0; }
+ol { margin:4px 0; padding-left:1.4em; }
+</style>
+</head>
+<body>
+<main>
+<h1>動画の絵の試し</h1>
+<section>
+  <p style="margin:0 0 6px">受け口のページで、iPhone だと動画の小さな絵が出ない件を確かめるページです。選んだ動画は<b>どこにも送りません</b>（このスマホの中で読むだけ）。</p>
+  <ol class="note">
+    <li>下の「動画を 1 本選ぶ」→「フォトライブラリ」→「オプション」で「フォーマット」を「現在」→ 動画を 1 本選んで「追加」</li>
+    <li>1・2・4 は自動で試します（10 秒ほど）。3 は出てきたボタンを押します</li>
+    <li>全部の結果が出たら、画面の写し（スクリーンショット）を撮ってください。「2」は、左の枠に動画の絵が見えているかも見てください</li>
+    <li>できれば「フォーマット」を「互換性優先」にして、もう 1 回選んでください（形式が違うと結果が変わるため）</li>
+  </ol>
+  <label class="pick">動画を 1 本選ぶ<input type="file" id="pick" accept="video/*"></label>
+</section>
+<section id="about" hidden><div class="log" id="about-log"></div></section>
+<div id="out"></div>
+<section id="copy-s" hidden><button type="button" id="copy">結果を文字でコピーする</button> <span class="note" id="copied"></span></section>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const el = (t, cls, txt) => { const e = document.createElement(t); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+const T0 = () => performance.now();
+const sec = (t) => ((performance.now() - t) / 1000).toFixed(1) + " 秒";
+let file = null, url = null, rows = [];
+
+// 何か描けたか(iPhone は黒か透明のまま返すことがある)
+function lit(cv) {
+  try {
+    const px = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+    for (let i = 0; i < px.length; i += 4 * 53) if (px[i + 3] && (px[i] > 8 || px[i + 1] > 8 || px[i + 2] > 8)) return true;
+  } catch (e) { return "読めない: " + e.message; }
+  return false;
+}
+function grab(src, w, h) {  // 写し取って { img, why }
+  if (!w || !h) return { why: "大きさが 0" };
+  const S = 96, s = S / Math.min(w, h), cv = el("canvas");
+  cv.width = cv.height = S;
+  try { cv.getContext("2d").drawImage(src, (S - w * s) / 2, (S - h * s) / 2, w * s, h * s); }
+  catch (e) { return { why: "drawImage の誤り: " + e.message }; }
+  const l = lit(cv);
+  if (l !== true) return { why: l === false ? "描いたが真っ黒か透明" : l };
+  return { img: cv.toDataURL("image/jpeg", 0.8) };
+}
+function row(n, title) {
+  const s = el("section"), m = el("div", "m"), pic = el("div", "pic", "—"), body = el("div", "body");
+  const h = el("h2", null, n + ". " + title), res = el("div", "res", "試しています…"), log = el("div", "log");
+  body.append(h, res, log); m.append(pic, body); s.appendChild(m); s.dataset.n = n;
+  $("out").insertBefore(s, [...$("out").children].find((x) => +x.dataset.n > n) || null);  // 番号の順に並べる(3 は先に作る)
+  const r = { n, title, pic, res, log, lines: [], t: T0(), done: false, ok: null };
+  r.say = (x) => { r.lines.push(`${sec(r.t)} ${x}`); log.textContent = r.lines.join("\n"); };
+  r.end = (ok, text, img) => {
+    if (r.done) return; r.done = true; r.ok = ok;
+    res.textContent = (ok ? "出た" : "出ない") + "（" + sec(r.t) + "）" + (text ? "　" + text : "");
+    res.className = "res " + (ok ? "ok" : "bad");
+    if (img) { pic.textContent = ""; const im = el("img"); im.src = img; pic.appendChild(im); }
+    r.say("おわり: " + (ok ? "出た" : "出ない") + (text ? " " + text : ""));
+  };
+  rows.push(r);
+  return r;
+}
+function watch(v, r, names) {
+  for (const n of names) v.addEventListener(n, () => r.say(`${n}（${v.videoWidth}x${v.videoHeight}・${isFinite(v.duration) ? v.duration.toFixed(1) : v.duration}秒・readyState ${v.readyState}）`));
+  v.addEventListener("error", () => r.say("error: " + (v.error ? v.error.code + " " + (v.error.message || "") : "")));
+}
+const EV = ["loadstart", "loadedmetadata", "loadeddata", "canplay", "seeked", "playing", "timeupdate", "stalled", "suspend"];
+function mkVideo(src) {
+  const v = el("video");
+  v.muted = true; v.defaultMuted = true; v.playsInline = true;
+  v.setAttribute("muted", ""); v.setAttribute("playsinline", "");
+  v.src = src;
+  return v;
+}
+const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+
+// 1. 少し先へ飛ばし、飛び終えたら写し取る(再生しない)
+function m1() {
+  const r = row(1, "少し先へ飛ばして写し取る（再生しない）");
+  return new Promise((done) => {
+    const v = mkVideo(url); v.preload = "auto";
+    watch(v, r, EV);
+    r.pic.textContent = ""; r.pic.appendChild(v);
+    const fin = (ok, t, img) => { r.end(ok, t, img); if (img) { try { v.remove(); } catch (e) {} } done(); };
+    v.addEventListener("loadedmetadata", () => { const t = Math.min(0.1, (v.duration || 1) / 2); r.say("currentTime = " + t); try { v.currentTime = t; } catch (e) { r.say("currentTime の誤り: " + e.message); } });
+    v.addEventListener("seeked", () => { const g = grab(v, v.videoWidth, v.videoHeight); if (g.img) fin(true, "", g.img); else { r.say(g.why); setTimeout(() => { const g2 = grab(v, v.videoWidth, v.videoHeight); g2.img ? fin(true, "0.5 秒待って", g2.img) : fin(false, g2.why); }, 500); } }, { once: true });
+    setTimeout(() => fin(false, "8 秒待っても飛び終えない"), 8000);
+    try { v.load(); } catch (e) { r.say("load の誤り: " + e.message); }
+  });
+}
+
+// 2. #t=0.001 を付けた <video> を画面に置くだけ(左の枠に絵が見えるか。写し取りも試す)
+function m2() {
+  const r = row(2, "#t=0.001 の動画を置くだけ（左の枠に絵が見えるか）");
+  return new Promise((done) => {
+    const v = mkVideo(url + "#t=0.001"); v.preload = "metadata";
+    watch(v, r, EV);
+    r.pic.textContent = ""; r.pic.appendChild(v);
+    let over = false;
+    const tryGrab = (why) => { if (over) return; const g = grab(v, v.videoWidth, v.videoHeight); r.say(why + ": " + (g.img ? "写し取れた" : g.why)); if (g.img) { over = true; r.end(true, "写し取れた（枠は動画のまま）"); done(); } };
+    v.addEventListener("loadeddata", () => tryGrab("loadeddata"));
+    setTimeout(() => { tryGrab("4 秒後"); if (!over) { over = true; r.end(false, "写し取れない。左の枠に絵が見えていれば、置くだけなら出る"); done(); } }, 4000);
+  });
+}
+
+// 3. ボタンを押したその中で一瞬再生して写し取る
+function m3() {
+  const r = row(3, "ボタンを押した中で一瞬再生して写し取る");
+  r.res.textContent = "下のボタンを押してください";
+  const b = el("button", "pri", "3 を試す（押す）"); b.type = "button";
+  r.log.before(b);
+  return new Promise((done) => {
+    b.addEventListener("click", () => {
+      b.disabled = true; r.t = T0(); r.say("押した");
+      const v = mkVideo(url); v.preload = "auto";
+      watch(v, r, EV);
+      r.pic.textContent = ""; r.pic.appendChild(v);
+      let over = false;
+      const shot = (why) => {
+        if (over) return; try { v.pause(); } catch (e) {}
+        const g = grab(v, v.videoWidth, v.videoHeight);
+        r.say(why + ": " + (g.img ? "写し取れた" : g.why));
+        if (g.img) { over = true; v.remove(); r.end(true, "", g.img); done(); }
+      };
+      let p;
+      try { p = v.play(); } catch (e) { r.say("play の誤り: " + e.message); }
+      if (p && p.then) p.then(() => { r.say("play が通った"); if ("requestVideoFrameCallback" in v) v.requestVideoFrameCallback(() => shot("コマが出た")); else v.addEventListener("timeupdate", () => shot("timeupdate"), { once: true }); },
+        (e) => r.say("play が断られた: " + (e && (e.name + " " + e.message))));
+      setTimeout(() => { shot("6 秒後"); if (!over) { over = true; r.end(false, "6 秒たっても写し取れない"); done(); } }, 6000);
+    }, { once: true });
+  });
+}
+
+// 4. moov から最初の鍵のコマを取り出し、WebCodecs で解いて写し取る
+const u32 = (dv, o) => dv.getUint32(o), typ = (dv, o) => String.fromCharCode(dv.getUint8(o), dv.getUint8(o + 1), dv.getUint8(o + 2), dv.getUint8(o + 3));
+function kids(dv, a, b) {  // [a, b) の箱を並べる
+  const out = [];
+  while (a + 8 <= b) {
+    let size = u32(dv, a), h = 8;
+    const t = typ(dv, a + 4);
+    if (size === 1) { size = Number(dv.getBigUint64(a + 8)); h = 16; } else if (size === 0) size = b - a;
+    if (size < h || a + size > b) break;
+    out.push({ t, a, s: a + h, e: a + size });
+    a += size;
+  }
+  return out;
+}
+const kid = (dv, box, t) => box && kids(dv, box.s, box.e).find((k) => k.t === t);
+async function readMoov(f) {
+  let pos = 0;
+  while (pos + 8 <= f.size) {
+    const dv = new DataView(await f.slice(pos, pos + 16).arrayBuffer());
+    let size = u32(dv, 0); const t = typ(dv, 4);
+    if (size === 1) size = Number(dv.getBigUint64(8)); else if (size === 0) size = f.size - pos;
+    if (size < 8) break;
+    if (t === "moov") {
+      if (size > 64 * 1024 * 1024) throw new Error("moov が大きすぎる");
+      return new DataView(await f.slice(pos, pos + size).arrayBuffer());
+    }
+    pos += size;
+  }
+  throw new Error("moov が見つからない");
+}
+function hevcCodec(type, c) {  // hvcC の頭から "hvc1.1.6.L153.B0" の形を組む(ISO/IEC 14496-15 付属書 E)
+  const b1 = c[1], space = b1 >> 6, tier = (b1 >> 5) & 1, prof = b1 & 31;
+  const compat = (c[2] << 24 | c[3] << 16 | c[4] << 8 | c[5]) >>> 0;
+  let rev = 0; for (let i = 0; i < 32; i++) if (compat & (1 << i)) rev |= 1 << (31 - i);
+  const cons = Array.from(c.slice(6, 12)); while (cons.length && !cons[cons.length - 1]) cons.pop();
+  return `${type}.${["", "A", "B", "C"][space]}${prof}.${(rev >>> 0).toString(16).toUpperCase()}.${tier ? "H" : "L"}${c[12]}` + cons.map((x) => "." + x.toString(16).toUpperCase()).join("");
+}
+function firstKey(dv) {  // 映像の trak から { type, codec, desc, off, size, w, h }
+  const moov = { s: 8, e: dv.byteLength };
+  for (const trak of kids(dv, moov.s, moov.e).filter((k) => k.t === "trak")) {
+    const mdia = kid(dv, trak, "mdia"), hdlr = kid(dv, mdia, "hdlr");
+    if (!hdlr || typ(dv, hdlr.s + 8) !== "vide") continue;
+    const stbl = kid(dv, kid(dv, mdia, "minf"), "stbl");
+    const stsd = kid(dv, stbl, "stsd");
+    const ent = kids(dv, stsd.s + 8, stsd.e)[0];
+    const w = dv.getUint16(ent.s + 24), h = dv.getUint16(ent.s + 26);
+    const cfg = kids(dv, ent.s + 78, ent.e).find((k) => k.t === "hvcC" || k.t === "avcC");
+    if (!cfg) throw new Error(`${ent.t} に hvcC・avcC が無い`);
+    const c = new Uint8Array(dv.buffer, dv.byteOffset + cfg.s, cfg.e - cfg.s).slice();
+    const codec = cfg.t === "avcC" ? `${ent.t}.` + [c[1], c[2], c[3]].map((x) => x.toString(16).padStart(2, "0")).join("") : hevcCodec(ent.t, c);
+    const stss = kid(dv, stbl, "stss");
+    const n = stss && u32(dv, stss.s + 4) ? u32(dv, stss.s + 8) : 1;  // 最初の鍵のコマ(1 から数える)
+    const stsz = kid(dv, stbl, "stsz"), fixed = u32(dv, stsz.s + 4);
+    const sizeOf = (i) => fixed || u32(dv, stsz.s + 12 + (i - 1) * 4);
+    const stsc = kid(dv, stbl, "stsc"), nsc = u32(dv, stsc.s + 4);
+    const stco = kid(dv, stbl, "stco"), co64 = kid(dv, stbl, "co64");
+    const chunkOff = (k) => stco ? u32(dv, stco.s + 8 + (k - 1) * 4) : Number(dv.getBigUint64(co64.s + 8 + (k - 1) * 8));
+    const nChunks = stco ? u32(dv, stco.s + 4) : u32(dv, co64.s + 4);
+    let sample = 1;
+    for (let i = 0; i < nsc; i++) {
+      const first = u32(dv, stsc.s + 8 + i * 12), per = u32(dv, stsc.s + 12 + i * 12);
+      const last = i + 1 < nsc ? u32(dv, stsc.s + 8 + (i + 1) * 12) - 1 : nChunks;
+      for (let k = first; k <= last; k++) {
+        if (n < sample + per) {
+          let off = chunkOff(k);
+          for (let j = sample; j < n; j++) off += sizeOf(j);
+          return { type: ent.t, codec, desc: c, off, size: sizeOf(n), w, h, n };
+        }
+        sample += per;
+      }
+    }
+    throw new Error("鍵のコマの場所が分からない");
+  }
+  throw new Error("映像の trak が無い");
+}
+async function m4() {
+  const r = row(4, "動画の中身から最初のコマを解く（WebCodecs）");
+  try {
+    if (typeof VideoDecoder === "undefined") return r.end(false, "このブラウザに VideoDecoder が無い");
+    const moov = await readMoov(file);
+    r.say("moov " + (moov.byteLength / 1024).toFixed(0) + " KB");
+    const k = firstKey(moov);
+    r.say(`${k.type} ${k.w}x${k.h} codec ${k.codec}・鍵のコマ ${k.n} 番・${(k.size / 1024).toFixed(0)} KB`);
+    const cfg = { codec: k.codec, description: k.desc, codedWidth: k.w, codedHeight: k.h };
+    let sup;
+    try { sup = await VideoDecoder.isConfigSupported(cfg); r.say("isConfigSupported: " + sup.supported); }
+    catch (e) { r.say("isConfigSupported の誤り: " + e.name + " " + e.message); }
+    if (sup && !sup.supported) return r.end(false, "この形式（" + k.codec + "）は解けないと言われた");
+    const data = new Uint8Array(await file.slice(k.off, k.off + k.size).arrayBuffer());
+    const img = await new Promise((ok, ng) => {
+      const timer = setTimeout(() => ng(new Error("8 秒たってもコマが出ない")), 8000);
+      const dec = new VideoDecoder({
+        output: (fr) => { clearTimeout(timer); r.say(`コマが出た ${fr.displayWidth}x${fr.displayHeight} ${fr.format || ""}`); const g = grab(fr, fr.displayWidth, fr.displayHeight); fr.close(); g.img ? ok(g.img) : ng(new Error(g.why)); },
+        error: (e) => { clearTimeout(timer); ng(e); },
+      });
+      dec.configure(cfg);
+      dec.decode(new EncodedVideoChunk({ type: "key", timestamp: 0, data }));
+      dec.flush().then(() => { try { dec.close(); } catch (e) {} }, (e) => r.say("flush: " + e.message));
+    });
+    r.end(true, "", img);
+  } catch (e) { r.end(false, (e && (e.name ? e.name + " " : "") + e.message) || String(e)); }
+}
+
+$("pick").addEventListener("change", async (ev) => {
+  const f = ev.target.files && ev.target.files[0];
+  ev.target.value = "";
+  if (!f) return;
+  if (url) URL.revokeObjectURL(url);
+  file = f; url = URL.createObjectURL(f); rows = [];
+  $("out").textContent = "";
+  $("about").hidden = false; $("copy-s").hidden = true;
+  $("about-log").textContent = [
+    "ブラウザ: " + navigator.userAgent,
+    `動画: ${f.name}・${f.type || "(種類なし)"}・${(f.size / 1048576).toFixed(1)} MB`,
+    "VideoDecoder: " + (typeof VideoDecoder !== "undefined" ? "ある" : "無い") + "・requestVideoFrameCallback: " + ("requestVideoFrameCallback" in HTMLVideoElement.prototype ? "ある" : "無い"),
+  ].join("\n");
+  const p3 = m3();   // ボタンだけ先に出す(押すのはいつでもよい)
+  await m1(); await m2(); await m4();
+  await p3;
+  $("copy-s").hidden = false;
+});
+$("copy").addEventListener("click", async () => {
+  const text = [$("about-log").textContent, ...rows.sort((a, b) => a.n - b.n).map((r) => `[${r.n}] ${r.title}: ${r.res.textContent}\n` + r.lines.join("\n"))].join("\n\n");
+  try { await navigator.clipboard.writeText(text); $("copied").textContent = "コピーしました"; }
+  catch (e) { $("copied").textContent = "コピーできません。画面の写しを撮ってください"; }
+});
+</script>
+</body>
+</html>
